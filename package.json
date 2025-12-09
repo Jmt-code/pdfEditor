@@ -1,0 +1,11 @@
+{
+  "name": "pdf-editor-monorepo",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=example-app",
+    "build": "npm run build --workspaces"
+  }
+}
