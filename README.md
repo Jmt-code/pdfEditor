@@ -4,8 +4,8 @@ A lightweight, dependency-free TypeScript library for generating PDF files in th
 
 ## Packages
 
-- **[@jmt-code/pdf-creator](./packages/pdf-creator)**: Core library for generating PDFs
-- **[@jmt-code/pdf-editor](./packages/pdf-editor)**: React components for building PDF editors
+- **[@jmt-code/pdf-creator](./packages/pdf-creator)**: Core library for generating PDFs [![npm](https://img.shields.io/npm/v/@jmt-code/pdf-creator.svg)](https://www.npmjs.com/package/@jmt-code/pdf-creator)
+- **[@jmt-code/pdf-editor](./packages/pdf-editor)**: React components for building PDF editors ⚠️ *WIP*
 
 ## Features
 
@@ -19,8 +19,6 @@ A lightweight, dependency-free TypeScript library for generating PDF files in th
 
 ```bash
 npm install @jmt-code/pdf-creator
-# or for the editor components
-npm install @jmt-code/pdf-editor
 ```
 
 ## Usage
@@ -118,4 +116,8 @@ Generates and downloads the PDF file.
 ### `getOutput(): Blob`
 
 Returns the PDF as a Blob object.
+
+---
+
+Created by [Jmt-code](https://github.com/Jmt-code)
 

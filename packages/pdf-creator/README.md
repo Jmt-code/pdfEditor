@@ -121,3 +121,11 @@ Returns the PDF as a Blob object.
 ## License
 
 MIT
+
+---
+
+Created by [Jmt-code](https://github.com/Jmt-code)
+
+## License
+
+MIT

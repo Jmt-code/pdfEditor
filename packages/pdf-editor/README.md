@@ -1,14 +1,17 @@
 # @jmt-code/pdf-editor
 
+> ⚠️ **Work in Progress** - This package is under active development and not yet published to npm.
+
 React components for building PDF editors in web and mobile applications.
 
-## Installation
+## Features
 
-```bash
-npm install @jmt-code/pdf-editor
-```
+- Visual PDF editor built with React
+- Text and image block support
+- Headers and footers configuration
+- Export to PDF using [@jmt-code/pdf-creator](https://www.npmjs.com/package/@jmt-code/pdf-creator)
 
-## Usage
+## Usage (Development)
 
 ```tsx
 import { PdfEditor } from '@jmt-code/pdf-editor';
@@ -23,18 +26,20 @@ function App() {
 }
 ```
 
-## Peer Dependencies
+## Requirements
 
-This library requires React 18+ as a peer dependency:
+- React 18+
+- React DOM 18+
 
-```bash
-npm install react react-dom
-```
+## Links
 
-## GitHub
-
-https://github.com/Jmt-code/pdfEditor
+- [GitHub Repository](https://github.com/Jmt-code/pdfEditor)
+- [Report Issues](https://github.com/Jmt-code/pdfEditor/issues)
 
 ## License
 
 MIT
+
+---
+
+Created by [Jmt-code](https://github.com/Jmt-code)
