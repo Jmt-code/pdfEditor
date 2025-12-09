@@ -1,6 +1,7 @@
 {
-  "name": "pdf-editor",
-  "version": "1.0.0",
+  "name": "@jmt-code/pdf-editor",
+  "version": "0.1.0",
+  "description": "React components for building PDF editors in web and mobile",
   "type": "module",
   "main": "./dist/pdf-editor.umd.cjs",
   "module": "./dist/pdf-editor.js",
@@ -11,17 +12,45 @@
       "import": "./dist/pdf-editor.js",
       "require": "./dist/pdf-editor.umd.cjs"
     },
-    "./dist/style.css": "./dist/style.css"
+    "./style.css": "./dist/style.css"
   },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": [
+    "**/*.css"
+  ],
   "scripts": {
-    "build": "tsc && vite build"
+    "build": "vite build",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "pdf",
+    "editor",
+    "react",
+    "components"
+  ],
+  "author": "Jmt-code",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jmt-code/pdfEditor.git",
+    "directory": "packages/pdf-editor"
+  },
+  "bugs": {
+    "url": "https://github.com/Jmt-code/pdfEditor/issues"
+  },
+  "homepage": "https://github.com/Jmt-code/pdfEditor/tree/main/packages/pdf-editor#readme",
+  "publishConfig": {
+    "access": "public"
   },
   "peerDependencies": {
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
   "dependencies": {
-    "pdf-generator": "*"
+    "@jmt-code/pdf-creator": "^0.1.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.66",

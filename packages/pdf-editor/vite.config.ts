@@ -15,12 +15,12 @@ export default defineConfig({
       fileName: 'pdf-editor'
     },
     rollupOptions: {
-      external: ['react', 'react-dom', 'pdf-generator'],
+      external: ['react', 'react-dom', '@jmt-code/pdf-creator'],
       output: {
         globals: {
           react: 'React',
           'react-dom': 'ReactDOM',
-          'pdf-generator': 'PdfGenerator'
+          '@jmt-code/pdf-creator': 'PdfCreator'
         }
       }
     }

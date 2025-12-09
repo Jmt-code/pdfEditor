@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { PdfGenerator } from 'pdf-generator';
+import { PdfCreator } from '@jmt-code/pdf-creator';
 import './PdfEditor.css';
 
 interface BlockStyle {
@@ -111,7 +111,7 @@ export const PdfEditor: React.FC = () => {
   };
 
   // HTML Parser for PDF Generation
-  const parseHtmlToPdf = async (pdf: PdfGenerator, html: string, startX: number, startY: number, width: number) => {
+  const parseHtmlToPdf = async (pdf: PdfCreator, html: string, startX: number, startY: number, width: number) => {
     const tempDiv = document.createElement('div');
     tempDiv.innerHTML = html;
     
@@ -185,7 +185,7 @@ export const PdfEditor: React.FC = () => {
   };
 
   const generatePdf = async () => {
-    const pdf = new PdfGenerator({
+    const pdf = new PdfCreator({
       headerHeight: 40,
       footerHeight: 40,
       defaultHeader: headerText ? { text: headerText, align: 'center' } : undefined,

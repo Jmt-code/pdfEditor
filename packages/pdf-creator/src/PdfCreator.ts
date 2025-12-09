@@ -29,8 +29,8 @@ export interface DefaultFooterConfig {
 export interface PdfConfig {
   headerHeight?: number;
   footerHeight?: number;
-  onHeader?: (doc: PdfGenerator, pageNumber: number) => void;
-  onFooter?: (doc: PdfGenerator, pageNumber: number) => void;
+  onHeader?: (doc: PdfCreator, pageNumber: number) => void;
+  onFooter?: (doc: PdfCreator, pageNumber: number) => void;
   defaultHeader?: DefaultHeaderConfig;
   defaultFooter?: DefaultFooterConfig;
 }
@@ -51,7 +51,7 @@ interface Page {
   };
 }
 
-export class PdfGenerator {
+export class PdfCreator {
   private config: PdfConfig;
   private objects: PdfObject[] = [];
   private pages: Page[] = [];

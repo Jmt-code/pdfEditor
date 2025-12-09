@@ -1,6 +1,11 @@
-# PDF Generator Library
+# PDF Editor Monorepo
 
 A lightweight, dependency-free TypeScript library for generating PDF files in the browser.
+
+## Packages
+
+- **[@jmt-code/pdf-creator](./packages/pdf-creator)**: Core library for generating PDFs
+- **[@jmt-code/pdf-editor](./packages/pdf-editor)**: React components for building PDF editors
 
 ## Features
 
@@ -12,10 +17,10 @@ A lightweight, dependency-free TypeScript library for generating PDF files in th
 
 ## Installation
 
-Since this is a monorepo, you can use the package locally. If you were to publish it:
-
 ```bash
-npm install pdf-generator
+npm install @jmt-code/pdf-creator
+# or for the editor components
+npm install @jmt-code/pdf-editor
 ```
 
 ## Usage
@@ -23,9 +28,9 @@ npm install pdf-generator
 ### Basic Example
 
 ```typescript
-import { PdfGenerator } from 'pdf-generator';
+import { PdfCreator } from '@jmt-code/pdf-creator';
 
-const pdf = new PdfGenerator();
+const pdf = new PdfCreator();
 
 // Add Text
 pdf.addText('Hello World', 20, 20, { size: 24, color: '#FF0000' });
@@ -48,7 +53,7 @@ You can configure default headers and footers or provide custom render functions
 #### Default Header/Footer
 
 ```typescript
-const pdf = new PdfGenerator({
+const pdf = new PdfCreator({
   defaultHeader: {
     text: 'My Company Confidential',
     align: 'center',
@@ -65,7 +70,7 @@ const pdf = new PdfGenerator({
 #### Custom Header/Footer
 
 ```typescript
-const pdf = new PdfGenerator({
+const pdf = new PdfCreator({
   onHeader: (doc, pageNum) => {
     doc.addText(`Custom Header - Page ${pageNum}`, 20, 20);
   },
@@ -77,7 +82,7 @@ const pdf = new PdfGenerator({
 
 ## API Reference
 
-### `new PdfGenerator(config?: PdfConfig)`
+### `new PdfCreator(config?: PdfConfig)`
 
 Creates a new PDF document.
 
