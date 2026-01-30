@@ -1,311 +1,321 @@
-import React, { useState } from 'react';
-import { PdfCreator } from '@jmt-code/pdf-creator';
+import {
+  useState,
+  useRef,
+  useCallback,
+  forwardRef,
+  useImperativeHandle,
+  useMemo,
+} from 'react';
+import {
+  Toolbar,
+  HeaderFooterPanel,
+  DragIndicator,
+} from './components';
+import {
+  useEditorCommands,
+  useMarkdownShortcuts,
+  useDragAndDrop,
+} from './hooks';
+import { generatePdfFromContent, downloadPdf } from './utils';
+import type {
+  PdfEditorProps,
+  PdfEditorConfig,
+  EditorState,
+  TextFormat,
+} from './types';
 import './PdfEditor.css';
 
-interface BlockStyle {
-  textAlign: 'left' | 'center' | 'right';
-  width?: number;
-  height?: number;
-}
+/** Contenido inicial por defecto */
+const DEFAULT_CONTENT = `<h1>Welcome to PDF Editor</h1>
+<p>Start typing here... Use the toolbar above to format your text like in Word.</p>
+<p>You can use <strong>Markdown shortcuts</strong>:</p>
+<ul>
+  <li># for headings</li>
+  <li>**text** for bold</li>
+  <li>*text* for italic</li>
+  <li>- or * for lists</li>
+  <li>&gt; for quotes</li>
+  <li>\`\`\` for code blocks</li>
+</ul>`;
 
-interface DocumentBlock {
-  id: string;
-  type: 'text' | 'image';
-  content: string; // HTML for text, URL for image
-  style: BlockStyle;
-}
-
-const DEFAULT_STYLE: BlockStyle = {
-  textAlign: 'left'
+/** Configuración por defecto */
+const DEFAULT_CONFIG: Required<PdfEditorConfig> = {
+  initialContent: DEFAULT_CONTENT,
+  defaultHeaderText: 'HEADER',
+  defaultFooterText: 'Page {pageNumber}',
+  exportFileName: 'document',
+  placeholder: 'Start typing...',
+  readOnly: false,
+  showHeaderFooterPanel: false,
+  documentWidth: 210,
+  documentMinHeight: 297,
 };
 
-export const PdfEditor: React.FC = () => {
-  const [blocks, setBlocks] = useState<DocumentBlock[]>([
-    { id: '1', type: 'text', content: '<div style="text-align: center;"><font size="6"><b>Welcome to PDF Editor</b></font></div>', style: { ...DEFAULT_STYLE, textAlign: 'center' } },
-    { id: '2', type: 'text', content: 'Start typing here...', style: { ...DEFAULT_STYLE } }
-  ]);
-  const [activeBlockId, setActiveBlockId] = useState<string | null>('2');
-  
-  // Header & Footer State
-  const [headerText, setHeaderText] = useState('');
-  const [footerText, setFooterText] = useState('Page {pageNumber}');
+/** Métodos expuestos del editor */
+export interface PdfEditorRef {
+  /** Obtiene el contenido HTML actual */
+  getContent: () => string;
+  /** Establece el contenido HTML */
+  setContent: (html: string) => void;
+  /** Exporta a PDF y devuelve el Blob */
+  exportPdf: () => Promise<Blob>;
+  /** Descarga el PDF */
+  downloadPdf: (fileName?: string) => Promise<void>;
+  /** Enfoca el editor */
+  focus: () => void;
+  /** Ejecuta un comando del editor */
+  execCommand: (command: string, value?: string) => void;
+}
 
-  const updateBlock = (id: string, changes: Partial<DocumentBlock>) => {
-    setBlocks(blocks.map(b => b.id === id ? { ...b, ...changes } : b));
-  };
+/**
+ * Editor de PDF tipo Word con soporte para markdown, 
+ * formateo de texto y exportación a PDF
+ */
+export const PdfEditor = forwardRef<PdfEditorRef, PdfEditorProps>(
+  ({ config = {}, onChange, onExport, onError, className = '', style }, ref) => {
+    // Merge config with defaults
+    const mergedConfig = useMemo(
+      () => ({ ...DEFAULT_CONFIG, ...config }),
+      [config]
+    );
 
-  const addTextBlock = () => {
-    const newBlock: DocumentBlock = {
-      id: Date.now().toString(),
-      type: 'text',
-      content: '',
-      style: { ...DEFAULT_STYLE }
-    };
-    setBlocks([...blocks, newBlock]);
-    setActiveBlockId(newBlock.id);
-  };
+    // Refs
+    const editorRef = useRef<HTMLDivElement>(null);
 
-  const addImageBlock = async () => {
-    const url = prompt('Enter Image URL:');
-    if (url) {
-      const newBlock: DocumentBlock = {
-        id: Date.now().toString(),
-        type: 'image',
-        content: url,
-        style: { ...DEFAULT_STYLE, width: 200, height: 200, textAlign: 'center' }
-      };
-      setBlocks([...blocks, newBlock]);
-      setActiveBlockId(newBlock.id);
-    }
-  };
-
-  const removeBlock = (id: string) => {
-    setBlocks(blocks.filter(b => b.id !== id));
-    if (activeBlockId === id) setActiveBlockId(null);
-  };
-
-  const execCmd = (command: string, value: any = null) => {
-    document.execCommand(command, false, value);
-    // Force update content of active block
-    if (activeBlockId) {
-        const el = document.getElementById(`editable-${activeBlockId}`);
-        if (el) {
-            updateBlock(activeBlockId, { content: el.innerHTML });
-        }
-    }
-  };
-
-  const handleToolbarAction = (action: string, value?: any) => {
-    if (!activeBlockId) return;
-    const block = blocks.find(b => b.id === activeBlockId);
-    if (!block) return;
-
-    // Focus the editable element before executing command
-    if (block.type === 'text') {
-        const el = document.getElementById(`editable-${activeBlockId}`);
-        if (el) el.focus();
-    }
-
-    switch (action) {
-      case 'bold': execCmd('bold'); break;
-      case 'italic': execCmd('italic'); break;
-      case 'underline': execCmd('underline'); break;
-      case 'justifyLeft': 
-        execCmd('justifyLeft'); 
-        updateBlock(activeBlockId, { style: { ...block.style, textAlign: 'left' } });
-        break;
-      case 'justifyCenter': 
-        execCmd('justifyCenter'); 
-        updateBlock(activeBlockId, { style: { ...block.style, textAlign: 'center' } });
-        break;
-      case 'justifyRight': 
-        execCmd('justifyRight'); 
-        updateBlock(activeBlockId, { style: { ...block.style, textAlign: 'right' } });
-        break;
-      case 'fontSize': execCmd('fontSize', value); break; // 1-7
-      case 'foreColor': execCmd('foreColor', value); break;
-      case 'fontName': execCmd('fontName', value); break;
-      case 'image': addImageBlock(); break;
-      case 'delete': removeBlock(activeBlockId); break;
-    }
-  };
-
-  // HTML Parser for PDF Generation
-  const parseHtmlToPdf = async (pdf: PdfCreator, html: string, startX: number, startY: number, width: number) => {
-    const tempDiv = document.createElement('div');
-    tempDiv.innerHTML = html;
-    
-    let currentX = startX;
-    let currentY = startY;
-
-    // Recursive function to traverse nodes
-    const traverse = (node: Node, style: any) => {
-        if (node.nodeType === Node.TEXT_NODE) {
-            const text = node.textContent || '';
-            if (!text.trim()) return;
-
-            const words = text.split(/(\s+)/); // Split by whitespace but keep delimiters
-            
-            for (const word of words) {
-                const textWidth = pdf.getTextWidth(word, style);
-                
-                // Check for line wrap
-                if (currentX + textWidth > startX + width) {
-                    currentY += (style.size || 12) * 1.2;
-                    currentX = startX;
-                }
-
-                // Handle alignment (rough) - actually alignment is hard with streaming text
-                // For now we assume left align flow, or we need to buffer lines.
-                // To keep it simple for this iteration, we just print.
-                
-                pdf.addText(word, currentX, currentY, style);
-                currentX += textWidth;
-            }
-        } else if (node.nodeType === Node.ELEMENT_NODE) {
-            const el = node as HTMLElement;
-            const newStyle = { ...style };
-            
-            if (el.tagName === 'B' || el.style.fontWeight === 'bold') newStyle.style = (newStyle.style || '') + 'bold';
-            if (el.tagName === 'I' || el.style.fontStyle === 'italic') newStyle.style = (newStyle.style || '') + 'italic';
-            if (el.tagName === 'FONT') {
-                if (el.getAttribute('color')) newStyle.color = el.getAttribute('color');
-                if (el.getAttribute('size')) {
-                    // Map HTML size 1-7 to pt
-                    const sizes: Record<string, number> = { '1': 8, '2': 10, '3': 12, '4': 14, '5': 18, '6': 24, '7': 36 };
-                    newStyle.size = sizes[el.getAttribute('size')!] || 12;
-                }
-                if (el.getAttribute('face')) newStyle.font = el.getAttribute('face');
-            }
-            if (el.style.color) newStyle.color = el.style.color;
-            if (el.style.fontSize) newStyle.size = parseInt(el.style.fontSize);
-            if (el.style.fontFamily) newStyle.font = el.getAttribute('face')!;
-
-            // Handle block elements (div, p) -> new line
-            if (['DIV', 'P', 'BR'].includes(el.tagName)) {
-                if (currentX > startX) {
-                    currentY += (style.size || 12) * 1.2;
-                    currentX = startX;
-                }
-            }
-
-            el.childNodes.forEach(child => traverse(child, newStyle));
-            
-            if (['DIV', 'P'].includes(el.tagName)) {
-                 if (currentX > startX) {
-                    currentY += (style.size || 12) * 1.2;
-                    currentX = startX;
-                }
-            }
-        }
-    };
-
-    traverse(tempDiv, { size: 12, font: 'helvetica', style: 'normal', color: '#000000' });
-    return currentY + 20; // Return next Y
-  };
-
-  const generatePdf = async () => {
-    const pdf = new PdfCreator({
-      headerHeight: 40,
-      footerHeight: 40,
-      defaultHeader: headerText ? { text: headerText, align: 'center' } : undefined,
-      defaultFooter: footerText ? { text: footerText.replace('{pageNumber}', ''), showPageNumbers: footerText.includes('{pageNumber}'), align: 'center' } : undefined
+    // State
+    const [state, setState] = useState<EditorState>({
+      content: mergedConfig.initialContent,
+      headerText: mergedConfig.defaultHeaderText,
+      footerText: mergedConfig.defaultFooterText,
     });
+    const [fileName, setFileName] = useState(mergedConfig.exportFileName);
+    const [activeFormats, setActiveFormats] = useState<Set<TextFormat>>(
+      new Set()
+    );
+    const [showHeaderFooter, setShowHeaderFooter] = useState(
+      mergedConfig.showHeaderFooterPanel
+    );
+    const [isExporting, setIsExporting] = useState(false);
 
-    let currentY = 40;
-    const marginX = 40;
-    const pageWidth = 595.28;
-    const contentWidth = pageWidth - (marginX * 2);
+    // Hooks personalizados
+    const { execCommand, formatBlock, insertLink, insertImage, updateActiveFormats } =
+      useEditorCommands(editorRef, setActiveFormats);
 
-    for (const block of blocks) {
-      if (block.type === 'text') {
-        // Use the HTML parser
-        currentY = await parseHtmlToPdf(pdf, block.content, marginX, currentY, contentWidth);
-      } else if (block.type === 'image') {
-        const width = block.style.width || 200;
-        const height = block.style.height || 200;
-        let imgX = marginX;
-        if (block.style.textAlign === 'center') imgX = (pageWidth - width) / 2;
-        else if (block.style.textAlign === 'right') imgX = pageWidth - marginX - width;
+    const { handleMarkdownInput } = useMarkdownShortcuts(editorRef, execCommand);
 
-        const drawnY = await pdf.addImage(block.content, imgX, currentY, { width, height });
-        currentY = drawnY + height + 20;
+    const { getDragState, handlePointerDown, handlePointerUp, handlePointerCancel } =
+      useDragAndDrop(editorRef);
+
+    // Generar PDF
+    const handleExport = useCallback(async () => {
+      if (!editorRef.current || isExporting) return;
+
+      try {
+        setIsExporting(true);
+        const pdfFileName = fileName.trim() || 'document';
+        const blob = await generatePdfFromContent(
+          editorRef.current.innerHTML,
+          state.headerText,
+          state.footerText,
+          pdfFileName
+        );
+
+        if (onExport) {
+          onExport(blob, pdfFileName);
+        } else {
+          downloadPdf(blob, pdfFileName);
+        }
+      } catch (error) {
+        const err = error instanceof Error ? error : new Error('Failed to export PDF');
+        onError?.(err);
+        console.error('PDF export error:', error);
+      } finally {
+        setIsExporting(false);
       }
-    }
+    }, [
+      state.headerText,
+      state.footerText,
+      fileName,
+      onExport,
+      onError,
+      isExporting,
+    ]);
 
-    pdf.save('document.pdf');
-  };
+    // Keyboard shortcuts
+    const handleKeyDown = useCallback(
+      (e: React.KeyboardEvent) => {
+        if (e.ctrlKey || e.metaKey) {
+          switch (e.key.toLowerCase()) {
+            case 'b':
+              e.preventDefault();
+              execCommand('bold');
+              break;
+            case 'i':
+              e.preventDefault();
+              execCommand('italic');
+              break;
+            case 'u':
+              e.preventDefault();
+              execCommand('underline');
+              break;
+            case 's':
+              e.preventDefault();
+              handleExport();
+              break;
+          }
+        }
+      },
+      [execCommand, handleExport]
+    );
 
-  return (
-    <div className="pdf-editor-container">
-      {/* Toolbar */}
-      <div className="pdf-toolbar">
-        <div className="toolbar-group">
-          <select className="toolbar-select" onChange={(e) => handleToolbarAction('fontName', e.target.value)}>
-            <option value="Arial">Arial</option>
-            <option value="Times New Roman">Times</option>
-            <option value="Courier New">Courier</option>
-          </select>
-          <select className="toolbar-select" onChange={(e) => handleToolbarAction('fontSize', e.target.value)}>
-            <option value="1">Small</option>
-            <option value="3">Normal</option>
-            <option value="5">Large</option>
-            <option value="7">Huge</option>
-          </select>
-        </div>
-        <div className="toolbar-group">
-          <button className="toolbar-btn" onClick={() => handleToolbarAction('bold')}><strong>B</strong></button>
-          <button className="toolbar-btn" onClick={() => handleToolbarAction('italic')}><em>I</em></button>
-          <button className="toolbar-btn" onClick={() => handleToolbarAction('underline')}><u>U</u></button>
-          <input type="color" className="toolbar-input-color" onChange={(e) => handleToolbarAction('foreColor', e.target.value)} />
-        </div>
-        <div className="toolbar-group">
-          <button className="toolbar-btn" onClick={() => handleToolbarAction('justifyLeft')}>L</button>
-          <button className="toolbar-btn" onClick={() => handleToolbarAction('justifyCenter')}>C</button>
-          <button className="toolbar-btn" onClick={() => handleToolbarAction('justifyRight')}>R</button>
-        </div>
-        <div className="toolbar-group">
-          <button className="toolbar-btn" onClick={() => handleToolbarAction('image')}>📷</button>
-          <button className="toolbar-btn" onClick={() => handleToolbarAction('delete')} style={{ color: 'red' }}>×</button>
-        </div>
-      </div>
+    // Handle input
+    const handleInput = useCallback(() => {
+      handleMarkdownInput();
+      updateActiveFormats();
 
-      {/* Workspace */}
-      <div className="pdf-workspace">
-        <div className="pdf-page">
-          <div className="pdf-header-editor">
-            <span className="area-label">Header</span>
-            <textarea 
-              className="editor-textarea" 
-              value={headerText}
-              onChange={(e) => setHeaderText(e.target.value)}
-              placeholder="Header text..."
-              style={{ textAlign: 'center', fontSize: '10pt' }}
-            />
-          </div>
+      // Notificar cambio de contenido
+      if (onChange && editorRef.current) {
+        onChange(editorRef.current.innerHTML);
+      }
+    }, [handleMarkdownInput, updateActiveFormats, onChange]);
 
-          <div className="pdf-content-area">
-            {blocks.map(block => (
-              <div 
-                key={block.id} 
-                className={`editor-block ${activeBlockId === block.id ? 'focused' : ''}`}
-                onClick={() => setActiveBlockId(block.id)}
-                style={{ textAlign: block.style.textAlign }}
-              >
-                {block.type === 'text' ? (
-                  <div
-                    id={`editable-${block.id}`}
-                    className="editor-contenteditable"
-                    contentEditable
-                    suppressContentEditableWarning
-                    onBlur={(e) => updateBlock(block.id, { content: e.currentTarget.innerHTML })}
-                    dangerouslySetInnerHTML={{ __html: block.content }}
-                    style={{ minHeight: '1.5em', outline: 'none' }}
-                  />
-                ) : (
-                  <div className="editor-image-container">
-                    <img src={block.content} className="editor-image" style={{ width: block.style.width, height: block.style.height }} />
-                  </div>
-                )}
+    // Save content on blur
+    const handleBlur = useCallback(() => {
+      if (editorRef.current) {
+        const newContent = editorRef.current.innerHTML;
+        setState((prev) => ({ ...prev, content: newContent }));
+        onChange?.(newContent);
+      }
+    }, [onChange]);
+
+    // Expose methods via ref
+    useImperativeHandle(
+      ref,
+      () => ({
+        getContent: () => editorRef.current?.innerHTML || '',
+        setContent: (html: string) => {
+          if (editorRef.current) {
+            editorRef.current.innerHTML = html;
+            setState((prev) => ({ ...prev, content: html }));
+          }
+        },
+        exportPdf: async () => {
+          if (!editorRef.current) {
+            throw new Error('Editor not initialized');
+          }
+          return generatePdfFromContent(
+            editorRef.current.innerHTML,
+            state.headerText,
+            state.footerText,
+            mergedConfig.exportFileName
+          );
+        },
+        downloadPdf: async (fileName?: string) => {
+          const blob = await generatePdfFromContent(
+            editorRef.current?.innerHTML || '',
+            state.headerText,
+            state.footerText,
+            fileName || mergedConfig.exportFileName
+          );
+          downloadPdf(blob, fileName || mergedConfig.exportFileName);
+        },
+        focus: () => editorRef.current?.focus(),
+        execCommand,
+      }),
+      [state.headerText, state.footerText, mergedConfig.exportFileName, execCommand]
+    );
+
+    // Get drag state
+    const dragState = getDragState();
+
+    return (
+      <div className={`pdf-editor ${className}`} style={style}>
+        {/* Main Toolbar */}
+        <Toolbar
+          activeFormats={activeFormats}
+          showHeaderFooter={showHeaderFooter}
+          fileName={fileName}
+          onFileNameChange={setFileName}
+          onToggleHeaderFooter={() => setShowHeaderFooter(!showHeaderFooter)}
+          onExport={handleExport}
+          onCommand={execCommand}
+          onFormatBlock={formatBlock}
+          onInsertLink={insertLink}
+          onInsertImage={insertImage}
+        />
+
+        {/* Header/Footer Panel */}
+        {showHeaderFooter && (
+          <HeaderFooterPanel
+            headerText={state.headerText}
+            footerText={state.footerText}
+            onHeaderChange={(value) =>
+              setState((prev) => ({ ...prev, headerText: value }))
+            }
+            onFooterChange={(value) =>
+              setState((prev) => ({ ...prev, footerText: value }))
+            }
+          />
+        )}
+
+        {/* Editor Workspace - Editor continuo */}
+        <div className="editor-workspace">
+          <div className="document-container">
+            {/* Header visual (solo para referencia del usuario) */}
+            {state.headerText && (
+              <div className="document-header">
+                <span className="header-text">{state.headerText}</span>
               </div>
-            ))}
-            <div className="add-block-area" onClick={addTextBlock}>+ Add Paragraph</div>
-          </div>
-
-          <div className="pdf-footer-editor">
-            <span className="area-label">Footer</span>
-            <textarea 
-              className="editor-textarea" 
-              value={footerText}
-              onChange={(e) => setFooterText(e.target.value)}
-              placeholder="Footer text..."
-              style={{ textAlign: 'center', fontSize: '10pt' }}
+            )}
+            
+            {/* Área de contenido editable - sin límites de página */}
+            <div
+              ref={editorRef}
+              className="editor-content"
+              contentEditable={!mergedConfig.readOnly}
+              suppressContentEditableWarning
+              onKeyDown={handleKeyDown}
+              onInput={handleInput}
+              onBlur={handleBlur}
+              onMouseUp={updateActiveFormats}
+              onPointerDown={handlePointerDown}
+              onPointerUp={handlePointerUp}
+              onPointerCancel={handlePointerCancel}
+              dangerouslySetInnerHTML={{ __html: state.content }}
+              role="textbox"
+              aria-multiline="true"
+              aria-label="Document editor"
+              data-placeholder={mergedConfig.placeholder}
             />
+            
+            {/* Footer visual (solo para referencia del usuario) */}
+            {state.footerText && (
+              <div className="document-footer">
+                <span className="footer-text">
+                  {state.footerText.replace('{pageNumber}', '•')}
+                </span>
+                <span className="footer-hint">(Page numbers added on export)</span>
+              </div>
+            )}
           </div>
         </div>
-      </div>
 
-      <button className="floating-action-btn" onClick={generatePdf}>⬇ PDF</button>
-    </div>
-  );
-};
+        {/* Drag indicator */}
+        <DragIndicator
+          isDragging={dragState.isDragging}
+          selection={dragState.selection}
+        />
+
+        {/* Export loading overlay */}
+        {isExporting && (
+          <div className="export-overlay" role="alert" aria-busy="true">
+            <div className="export-spinner" />
+            <span>Exporting PDF...</span>
+          </div>
+        )}
+      </div>
+    );
+  }
+);
+
+PdfEditor.displayName = 'PdfEditor';

@@ -5,6 +5,7 @@ export interface TextOptions {
   style?: 'normal' | 'bold' | 'italic' | 'bolditalic';
   color?: string; // hex
   align?: 'left' | 'center' | 'right';
+  marginX?: number; // left margin for page break reset
 }
 
 export interface ImageOptions {
@@ -138,6 +139,10 @@ export class PdfCreator {
       }
     });
     this.currentPageIndex = this.pages.length - 1;
+    
+    // Add white background to the page
+    const currentPage = this.pages[this.currentPageIndex];
+    currentPage.content.push(`q\n1 1 1 rg\n0 0 ${this.PAGE_WIDTH} ${this.PAGE_HEIGHT} re\nf\nQ\n`);
   }
 
   // Helper to switch context to a specific page (for header/footer)
@@ -160,16 +165,24 @@ export class PdfCreator {
     return text.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
   }
 
-  public addText(text: string, x: number, y: number, options: TextOptions = {}): number {
-    const { size = 12, font = 'helvetica', style = 'normal', color = '#000000', align = 'left' } = options;
+  public addText(text: string, x: number, y: number, options: TextOptions = {}): { y: number; pageBreak: boolean; x: number } {
+    const { size = 12, font = 'helvetica', style = 'normal', color = '#000000', align = 'left', marginX = 40 } = options;
+    
+    let pageBreak = false;
     
     // Check for footer overlap
-    // If y + size > PAGE_HEIGHT - footerHeight, move to next page
-    const footerStart = this.PAGE_HEIGHT - this.footerHeight;
-    if (!this.isApplyingHeaderFooter && y + size > footerStart) {
+    // y is in user coordinates (top-left origin, growing downward)
+    // Content area ends at PAGE_HEIGHT - footerHeight - bottom margin (20)
+    const bottomMargin = 20;
+    const maxY = this.PAGE_HEIGHT - this.footerHeight - bottomMargin;
+    
+    if (!this.isApplyingHeaderFooter && y + size > maxY) {
         this.addPage();
-        // Reset Y to top of printable area (headerHeight + margin)
-        y = this.headerHeight + 20; 
+        // Reset Y to top of printable area (headerHeight + top margin)
+        const topMargin = 40;
+        y = this.headerHeight + topMargin;
+        x = marginX; // Reset X to left margin on page break
+        pageBreak = true;
     }
 
     // PDF coordinate system starts at bottom-left. 
@@ -193,12 +206,18 @@ export class PdfCreator {
     content += `/${fontResourceName} ${size} Tf\n`;
     content += `${rgb.r} ${rgb.g} ${rgb.b} rg\n`;
     
-    // Simple alignment adjustment (very rough approximation for width)
+    // Calculate actual text width for alignment
+    const textWidth = this.getTextWidth(text, { size, font, style });
+    const contentWidth = this.PAGE_WIDTH - (marginX * 2);
+    
     let xOffset = x;
     if (align === 'center') {
-        xOffset -= (text.length * size * 0.3); // Rough estimate
+        // Center: start position should be margin + (contentWidth - textWidth) / 2
+        // But since we're adding word by word, we adjust relative to current x
+        xOffset = marginX + (contentWidth / 2) - (textWidth / 2);
     } else if (align === 'right') {
-        xOffset -= (text.length * size * 0.6); // Rough estimate
+        // Right: text should end at right margin
+        xOffset = this.PAGE_WIDTH - marginX - textWidth;
     }
 
     content += `${xOffset} ${pdfY} Td\n`;
@@ -207,7 +226,7 @@ export class PdfCreator {
 
     currentPage.content.push(content);
     
-    return y;
+    return { y, pageBreak, x };
   }
 
   private async processImage(source: string): Promise<string> {
