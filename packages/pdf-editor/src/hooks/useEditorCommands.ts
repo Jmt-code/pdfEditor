@@ -1,16 +1,37 @@
 import { useCallback, useEffect, useRef, RefObject } from 'react';
 import { isSafeUrl } from '../utils/sanitize';
+import { ALLOWED_IMAGE_TYPES, readImageFile } from '../utils/images';
 import type { TextFormat } from '../types';
 
 /**
  * Hook para manejar los comandos del editor
  */
+const FORMAT_COMMANDS: [string, TextFormat][] = [
+  ['bold', 'bold'], ['italic', 'italic'], ['underline', 'underline'], ['strikeThrough', 'strikethrough'],
+  ['insertUnorderedList', 'ul'], ['insertOrderedList', 'ol'],
+  ['justifyLeft', 'left'], ['justifyCenter', 'center'], ['justifyRight', 'right'], ['justifyFull', 'justify'],
+];
+
+/** Formatos activos en la selección actual (fuente única para la barra y los eventos) */
+export function readActiveFormats(): TextFormat[] {
+  return FORMAT_COMMANDS.filter(([command]) => {
+    try {
+      return document.queryCommandState(command);
+    } catch {
+      return false;
+    }
+  }).map(([, format]) => format);
+}
+
 export function useEditorCommands(
   editorRef: RefObject<HTMLDivElement | null>,
   onFormatsChange: (formats: Set<TextFormat>) => void,
   onContentChange?: () => void,
-  disabled = false
+  disabled = false,
+  prompts: { link: string; image: string } = { link: 'Enter URL:', image: 'Enter image URL:' }
 ) {
+  const promptsRef = useRef(prompts);
+  promptsRef.current = prompts;
   const savedRange = useRef<Range | null>(null);
   const disabledRef = useRef(disabled);
   disabledRef.current = disabled;
@@ -34,20 +55,7 @@ export function useEditorCommands(
    * Actualiza los formatos activos basándose en la selección actual
    */
   const updateActiveFormats = useCallback(() => {
-    const formats = new Set<TextFormat>();
-    
-    if (document.queryCommandState('bold')) formats.add('bold');
-    if (document.queryCommandState('italic')) formats.add('italic');
-    if (document.queryCommandState('underline')) formats.add('underline');
-    if (document.queryCommandState('strikeThrough')) formats.add('strikethrough');
-    if (document.queryCommandState('insertUnorderedList')) formats.add('ul');
-    if (document.queryCommandState('insertOrderedList')) formats.add('ol');
-    if (document.queryCommandState('justifyLeft')) formats.add('left');
-    if (document.queryCommandState('justifyCenter')) formats.add('center');
-    if (document.queryCommandState('justifyRight')) formats.add('right');
-    if (document.queryCommandState('justifyFull')) formats.add('justify');
-    
-    onFormatsChange(formats);
+    onFormatsChange(new Set(readActiveFormats()));
   }, [onFormatsChange]);
 
   /**
@@ -94,7 +102,7 @@ export function useEditorCommands(
    */
   const insertLink = useCallback(() => {
     if (disabledRef.current) return;
-    const url = prompt('Enter URL:');
+    const url = prompt(promptsRef.current.link);
     if (url && isSafeUrl(url, 'link')) {
       execCommand('createLink', url);
     }
@@ -105,7 +113,7 @@ export function useEditorCommands(
    */
   const insertImage = useCallback(() => {
     if (disabledRef.current) return;
-    const url = prompt('Enter image URL:');
+    const url = prompt(promptsRef.current.image);
     if (url && isSafeUrl(url, 'image')) {
       execCommand('insertImage', url);
     }
@@ -118,19 +126,31 @@ export function useEditorCommands(
     if (disabledRef.current) return;
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = 'image/png,image/jpeg,image/gif,image/webp';
-    input.onchange = (e) => {
+    input.accept = ALLOWED_IMAGE_TYPES.join(',');
+    input.onchange = async (e) => {
       const file = (e.target as HTMLInputElement).files?.[0];
-      if (file && ['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(file.type) && file.size <= 5 * 1024 * 1024) {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const dataUrl = reader.result as string;
-          execCommand('insertImage', dataUrl);
-        };
-        reader.readAsDataURL(file);
-      }
+      const dataUrl = file ? await readImageFile(file) : null;
+      if (dataUrl && isSafeUrl(dataUrl, 'image')) execCommand('insertImage', dataUrl);
     };
     input.click();
+  }, [execCommand]);
+
+  /**
+   * Inserta una tabla vacía de filas × columnas (HTML fijo, sin texto del usuario) con la
+   * primera fila como cabecera. Usa insertHTML para conservar el deshacer nativo.
+   */
+  const insertTable = useCallback((rows = 3, cols = 3) => {
+    const r = Math.min(50, Math.max(1, Math.floor(rows)));
+    const c = Math.min(20, Math.max(1, Math.floor(cols)));
+    const cell = (tag: 'th' | 'td') => `<${tag}><br></${tag}>`;
+    const head = `<tr>${cell('th').repeat(c)}</tr>`;
+    const body = `<tr>${cell('td').repeat(c)}</tr>`.repeat(Math.max(0, r - 1));
+    execCommand('insertHTML', `<table><thead>${head}</thead><tbody>${body}</tbody></table><p><br></p>`);
+  }, [execCommand]);
+
+  /** Inserta un salto de página manual (afecta al PDF y al contador de páginas). */
+  const insertPageBreak = useCallback(() => {
+    execCommand('insertHTML', '<div data-page-break="true"></div><p><br></p>');
   }, [execCommand]);
 
   return {
@@ -139,6 +159,8 @@ export function useEditorCommands(
     insertLink,
     insertImage,
     insertImageFromFile,
+    insertTable,
+    insertPageBreak,
     updateActiveFormats,
   };
 }

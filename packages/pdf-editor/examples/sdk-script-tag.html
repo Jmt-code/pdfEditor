@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PDF Editor via script tag</title>
+    <style>html, body { margin: 0; height: 100%; } #editor { height: 100vh; }</style>
+  </head>
+  <body>
+    <div id="editor"></div>
+    <!-- Bundle autocontenido: React, DOMPurify y pdf-creator incluidos; inyecta su CSS -->
+    <script src="../dist/pdf-editor.sdk.js"></script>
+    <script>
+      const editor = PdfEditorSDK.createEditor(document.getElementById('editor'), {
+        content: '<h1>Hello from a script tag</h1><p>No bundler, no React in your code.</p>',
+        footer: 'Page {pageNumber} of {totalPages}',
+      });
+      editor.on('ready', () => { window.__sdkReady = true; });
+    </script>
+  </body>
+</html>

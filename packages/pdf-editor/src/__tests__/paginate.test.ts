@@ -45,3 +45,19 @@ describe('paginate', () => {
     expect(pageIndexFor(breaks, 500)).toBe(2);
   });
 });
+
+describe('paginate: manual page breaks', () => {
+  const line = (y: number): TextRun => ({
+    kind: 'text', text: 'x', x: 0, y, width: 10, height: 20, baseline: y + 15,
+    font: 'helvetica', style: 'normal', sizePx: 16, color: '#000000',
+  });
+  it('a forced break opens a page at the next line', () => {
+    expect(paginate({ atoms: [line(0), line(40)], forcedBreaks: [30] }, 1000)).toEqual([0, 40]);
+  });
+  it('a forced break after all the content still adds a page', () => {
+    expect(paginate({ atoms: [line(0)], forcedBreaks: [30] }, 1000)).toEqual([0, 30]);
+  });
+  it('a forced break at the top of a page does not add an empty page', () => {
+    expect(paginate({ atoms: [line(0)], forcedBreaks: [0] }, 1000)).toEqual([0]);
+  });
+});

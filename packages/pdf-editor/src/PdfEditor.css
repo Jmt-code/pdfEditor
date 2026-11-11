@@ -15,6 +15,11 @@
   --pdf-editor-active-color: #0066cc;
 }
 
+/* Embebido (SDK): ocupa su contenedor en lugar de toda la ventana */
+.pdf-editor.pdf-editor--fill {
+  height: 100%;
+}
+
 /* Screen reader only utility */
 .sr-only {
   position: absolute;
@@ -45,8 +50,8 @@
   align-items: center;
   gap: 4px;
   padding: 8px 16px;
-  background: linear-gradient(180deg, #ffffff 0%, #f8f8f8 100%);
-  border-bottom: 1px solid #d4d4d4;
+  background: var(--pdf-editor-toolbar-bg);
+  border-bottom: 1px solid var(--pdf-editor-border);
   flex-wrap: wrap;
   min-height: 48px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
@@ -61,7 +66,7 @@
 .toolbar-divider {
   width: 1px;
   height: 24px;
-  background-color: #d4d4d4;
+  background-color: var(--pdf-editor-border);
   margin: 0 8px;
 }
 
@@ -94,26 +99,26 @@
 }
 
 .toolbar-btn.active {
-  background-color: #cce4ff;
-  color: #0066cc;
+  background-color: var(--pdf-editor-active-bg);
+  color: var(--pdf-editor-active-color);
 }
 
 .toolbar-btn-primary {
-  background-color: #0078d4;
+  background-color: var(--pdf-editor-primary);
   color: white;
   font-weight: 500;
   padding: 0 16px;
 }
 
 .toolbar-btn-primary:hover {
-  background-color: #106ebe;
+  background-color: var(--pdf-editor-primary-hover);
 }
 
 /* Filename input */
 .toolbar-filename {
   height: 32px;
   padding: 0 12px;
-  border: 1px solid #d4d4d4;
+  border: 1px solid var(--pdf-editor-border);
   border-radius: 4px;
   background: white;
   font-size: 13px;
@@ -122,12 +127,12 @@
 }
 
 .toolbar-filename:hover {
-  border-color: #0078d4;
+  border-color: var(--pdf-editor-primary);
 }
 
 .toolbar-filename:focus {
   outline: none;
-  border-color: #0078d4;
+  border-color: var(--pdf-editor-primary);
   box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.2);
 }
 
@@ -169,7 +174,7 @@
 }
 
 .toolbar-toggle input:checked + .toggle-slider {
-  background-color: #0078d4;
+  background-color: var(--pdf-editor-primary);
 }
 
 .toolbar-toggle input:checked + .toggle-slider::before {
@@ -187,7 +192,7 @@
 .toolbar-select {
   height: 32px;
   padding: 0 8px;
-  border: 1px solid #d4d4d4;
+  border: 1px solid var(--pdf-editor-border);
   border-radius: 4px;
   background: white;
   font-size: 13px;
@@ -197,12 +202,12 @@
 }
 
 .toolbar-select:hover {
-  border-color: #0078d4;
+  border-color: var(--pdf-editor-primary);
 }
 
 .toolbar-select:focus {
   outline: none;
-  border-color: #0078d4;
+  border-color: var(--pdf-editor-primary);
   box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.2);
 }
 
@@ -210,14 +215,14 @@
   width: 32px;
   height: 32px;
   padding: 2px;
-  border: 1px solid #d4d4d4;
+  border: 1px solid var(--pdf-editor-border);
   border-radius: 4px;
   background: white;
   cursor: pointer;
 }
 
 .toolbar-color:hover {
-  border-color: #0078d4;
+  border-color: var(--pdf-editor-primary);
 }
 
 /* ==================== HEADER/FOOTER PANEL ==================== */
@@ -247,14 +252,14 @@
   flex: 1;
   height: 32px;
   padding: 0 12px;
-  border: 1px solid #d4d4d4;
+  border: 1px solid var(--pdf-editor-border);
   border-radius: 4px;
   font-size: 13px;
 }
 
 .hf-input-group input:focus {
   outline: none;
-  border-color: #0078d4;
+  border-color: var(--pdf-editor-primary);
   box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.2);
 }
 
@@ -267,7 +272,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  background-color: #525659;
+  background-color: var(--pdf-editor-workspace-bg);
   position: relative;
   min-height: 0;
 }
@@ -275,7 +280,7 @@
 /* Contenedor del documento - múltiples páginas */
 .document-container {
   width: 794px; /* A4 width at 96 DPI */
-  background: white;
+  background: var(--pdf-editor-page-bg);
   box-shadow: 
     0 2px 12px rgba(0, 0, 0, 0.2),
     0 0 0 1px rgba(0, 0, 0, 0.08);
@@ -301,7 +306,7 @@
   justify-content: center;
   height: 50px;
   padding: 0 76px;
-  background: linear-gradient(to bottom, #fafafa, #ffffff);
+  background: var(--pdf-editor-header-footer-bg);
   border-bottom: 1px dashed #ddd;
   color: #999;
   font-size: 10pt;
@@ -316,7 +321,7 @@
   justify-content: center;
   height: 50px;
   padding: 0 76px;
-  background: linear-gradient(to top, #fafafa, #ffffff);
+  background: var(--pdf-editor-header-footer-bg);
   border-top: 1px dashed #ddd;
   color: #999;
   font-size: 10pt;
@@ -502,7 +507,7 @@
   justify-content: space-between;
   padding: 4px 16px;
   background: #f0f0f0;
-  border-top: 1px solid #d4d4d4;
+  border-top: 1px solid var(--pdf-editor-border);
   font-size: 12px;
   color: #666;
   min-height: 24px;
@@ -524,9 +529,60 @@
   background: #e0e0e0;
 }
 
-.status-info {
+.status-info,
+.status-stats {
   color: #888;
   font-size: 11px;
+}
+
+/* ==================== TABLES ==================== */
+.editor-content table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0 0 12px 0;
+  table-layout: fixed;
+}
+
+.editor-content th,
+.editor-content td {
+  border: 1px solid #c8c8c8;
+  padding: 6px 8px;
+  vertical-align: top;
+  text-align: left;
+  min-width: 2em;
+  word-wrap: break-word;
+}
+
+.editor-content th {
+  background: #f3f3f3;
+  font-weight: 600;
+}
+
+/* ==================== MANUAL PAGE BREAK ==================== */
+/* Sin borde ni fondo propios: la marca es un ::before, que el exportador no mide ni dibuja */
+.editor-content [data-page-break] {
+  position: relative;
+  height: 0;
+  margin: 18px 0;
+  border: 0;
+  user-select: none;
+}
+
+.editor-content [data-page-break]::before {
+  /* Texto traducido desde el componente (variable CSS --pdf-page-break-label) */
+  content: '· · ·  ' var(--pdf-page-break-label, 'Page break') '  · · ·';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -9px;
+  height: 18px;
+  border-top: 1px dashed #9a9a9a;
+  font-size: 10px;
+  line-height: 18px;
+  text-align: center;
+  color: #888;
+  background: transparent;
+  pointer-events: none;
 }
 
 @keyframes slideUp {
@@ -646,41 +702,30 @@
 
 /* ==================== DARK MODE (optional) ==================== */
 @media (prefers-color-scheme: dark) {
-  .pdf-editor {
-    background-color: #1e1e1e;
-    color: #e0e0e0;
-  }
-
-  .editor-toolbar {
-    background: linear-gradient(180deg, #2d2d2d 0%, #252525 100%);
-    border-bottom-color: #3d3d3d;
+  /* Solo variables, y en :root: un tema del SDK (variables en el contenedor, más cercano)
+     tiene prioridad también en modo oscuro */
+  :root {
+    --pdf-editor-bg: #1e1e1e;
+    --pdf-editor-text: #e0e0e0;
+    --pdf-editor-toolbar-bg: linear-gradient(180deg, #2d2d2d 0%, #252525 100%);
+    --pdf-editor-border: #3d3d3d;
+    --pdf-editor-active-bg: #264f78;
+    --pdf-editor-active-color: #6cb6ff;
+    --pdf-editor-workspace-bg: #2d2d2d;
   }
 
   .toolbar-btn {
-    color: #e0e0e0;
+    color: var(--pdf-editor-text);
   }
 
   .toolbar-btn:hover {
-    background-color: #3d3d3d;
-  }
-
-  .toolbar-btn.active {
-    background-color: #264f78;
-    color: #6cb6ff;
+    background-color: var(--pdf-editor-border);
   }
 
   .toolbar-select {
     background: #2d2d2d;
-    border-color: #3d3d3d;
-    color: #e0e0e0;
-  }
-
-  .toolbar-divider {
-    background-color: #3d3d3d;
-  }
-
-  .editor-workspace {
-    background-color: #2d2d2d;
+    border-color: var(--pdf-editor-border);
+    color: var(--pdf-editor-text);
   }
 
   .page-break-line {
@@ -713,7 +758,7 @@
 
   .page-header-visual,
   .page-footer-visual {
-    background: #fafafa;
+    background: var(--pdf-editor-header-footer-bg);
   }
 }
 

@@ -193,6 +193,7 @@ export async function parseHtmlToPdf(
   const shifted = {
     atoms: layout.atoms.map(a => ({ ...a, y: a.y + offset })),
     fills: layout.fills.map(f => ({ ...f, y: f.y + offset })),
+    forcedBreaks: layout.forcedBreaks.map(y => y + offset),
   };
   const breaks = paginate(shifted, pageHeightPx).map((b, i) => (i === 0 ? 0 : b - offset));
 

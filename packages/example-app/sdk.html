@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PDF Editor SDK (vanilla JS)</title>
+    <style>
+      body { margin: 0; font-family: 'Segoe UI', -apple-system, Roboto, sans-serif; display: flex; flex-direction: column; height: 100vh; }
+      .sdk-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 12px; background: #1e293b; color: #e2e8f0; font-size: 13px; }
+      .sdk-bar button { background: #334155; color: #e2e8f0; border: 1px solid #475569; border-radius: 4px; padding: 4px 10px; cursor: pointer; font: inherit; }
+      .sdk-bar button:hover { background: #475569; }
+      .sdk-bar .sdk-log { margin-left: auto; opacity: .8; }
+      #editor { flex: 1; min-height: 0; }
+    </style>
+  </head>
+  <body>
+    <div class="sdk-bar">
+      <strong>SDK demo</strong>
+      <button id="btn-bold">Negrita</button>
+      <button id="btn-table">Tabla 3×3</button>
+      <button id="btn-break">Salto de página</button>
+      <button id="btn-readonly">Solo lectura</button>
+      <button id="btn-locale">EN / ES</button>
+      <button id="btn-theme">Tema</button>
+      <button id="btn-html">Exportar HTML</button>
+      <button id="btn-print">Imprimir</button>
+      <span class="sdk-log" id="log">…</span>
+    </div>
+    <div id="editor"></div>
+    <script type="module" src="/src/sdk-demo.ts"></script>
+  </body>
+</html>

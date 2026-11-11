@@ -69,6 +69,8 @@ export interface HtmlLayout {
   fills: FillBox[];
   lines: DecorationLine[];
   links: LinkBox[];
+  /** Posiciones Y de los saltos de página manuales (elementos [data-page-break]) */
+  forcedBreaks: number[];
 }
 
 export interface CollectOptions {
@@ -168,6 +170,11 @@ class BaselineProbe {
   }
 }
 
+/** Marcador de salto vacío (misma regla que sanitizeHtml) */
+function isEmptyMarker(el: Element): boolean {
+  return !el.textContent?.trim() && !el.querySelector('img, table, hr');
+}
+
 /**
  * Recorre `root` y devuelve la posición de todo lo que hay que dibujar.
  */
@@ -180,7 +187,7 @@ export function collectLayout(root: HTMLElement, options: CollectOptions = {}): 
   const originX = rootRect.left + parseFloat(rootCs.borderLeftWidth) + parseFloat(rootCs.paddingLeft);
   const originY = rootRect.top + parseFloat(rootCs.borderTopWidth) + parseFloat(rootCs.paddingTop);
 
-  const layout: HtmlLayout = { atoms: [], fills: [], lines: [], links: [] };
+  const layout: HtmlLayout = { atoms: [], fills: [], lines: [], links: [], forcedBreaks: [] };
   const probe = new BaselineProbe(doc);
   const range = doc.createRange();
   const styleCache = new Map<Element, CSSStyleDeclaration>();
@@ -394,6 +401,15 @@ export function collectLayout(root: HTMLElement, options: CollectOptions = {}): 
       // Fondos y bordes solo leen el DOM: se recogen siempre porque afectan a la paginación
       if (el !== root) collectBoxDecorations(el, cs);
 
+      if (el !== root && el.hasAttribute('data-page-break') && isEmptyMarker(el)) {
+        // Salto manual: lo que venga después empieza en una página nueva. No se dibuja nada
+        // (la marca visual del editor es un ::before). Un marcador con contenido (p. ej. tras
+        // escribir dentro) no cuenta como salto: el saneado tampoco lo conserva, y así el
+        // contador del editor y el PDF coinciden.
+        layout.forcedBreaks.push(el.getBoundingClientRect().top - originY);
+        return;
+      }
+
       if (el.tagName === 'IMG') {
         const img = el as HTMLImageElement;
         const r = img.getBoundingClientRect();
@@ -425,10 +441,12 @@ export function collectLayout(root: HTMLElement, options: CollectOptions = {}): 
  * se solapan verticalmente se agrupan y la página salta al inicio del grupo que no cabe.
  */
 export function paginate(
-  layout: Pick<HtmlLayout, 'atoms'> & Partial<Pick<HtmlLayout, 'fills'>>,
+  layout: Pick<HtmlLayout, 'atoms'> & Partial<Pick<HtmlLayout, 'fills' | 'forcedBreaks'>>,
   pageHeightPx: number
 ): number[] {
   const fills = layout.fills ?? [];
+  const forced = [...(layout.forcedBreaks ?? [])].sort((a, b) => a - b);
+  let nextForced = 0;
   const boxes = layout.atoms
     // Las imágenes más altas que una página se dibujan reducidas a una página
     .map(a => ({ top: a.y, bottom: a.y + (a.kind === 'image' ? Math.min(a.height, pageHeightPx) : a.height) }))
@@ -448,6 +466,17 @@ export function paginate(
   let pageTop = 0;
   let prevBottom = 0;
   for (const g of groups) {
+    // Saltos manuales anteriores a este grupo: el grupo abre página (varios seguidos cuentan
+    // como uno; uno al principio de una página no crea una página vacía)
+    let forcedHere = false;
+    while (nextForced < forced.length && forced[nextForced] <= g.top + 0.5) {
+      forcedHere = true;
+      nextForced++;
+    }
+    if (forcedHere && g.top > pageTop + 0.5) {
+      pageTop = g.top;
+      breaks.push(pageTop);
+    }
     while (g.bottom - pageTop > pageHeightPx + 0.5) {
       if (g.top > pageTop + 0.5) {
         // La siguiente página empieza en el grupo... o antes, si el grupo está dentro de un
@@ -467,6 +496,11 @@ export function paginate(
       breaks.push(pageTop);
     }
     prevBottom = g.bottom;
+  }
+  // Un salto manual detrás de todo el contenido también abre página (como en Word: el cursor
+  // queda en la página nueva, vacía)
+  if (nextForced < forced.length && forced[forced.length - 1] > pageTop + 0.5) {
+    breaks.push(Math.max(forced[forced.length - 1], prevBottom));
   }
   return breaks;
 }

@@ -2,6 +2,7 @@
  * PDF Editor Types
  * Tipos centralizados para el editor de PDF
  */
+import type { EditorMessages } from '../i18n';
 
 /** Configuración del editor */
 export interface PdfEditorConfig {
@@ -24,6 +25,54 @@ export interface PdfEditorConfig {
   /** Alto mínimo del documento en mm (default: 297 para A4) */
   /** @deprecated ignored; the document is always A4 */
   documentMinHeight?: number;
+  /** Idioma de la interfaz ('en' por defecto, 'es' incluido) */
+  locale?: string;
+  /** Sobrescribe textos concretos de la interfaz */
+  messages?: Partial<EditorMessages>;
+  /** Herramientas de la barra que no se muestran */
+  hiddenTools?: ToolId[];
+  /** Botones adicionales de la barra */
+  toolbarItems?: CustomToolbarItem[];
+  /** Oculta la barra de herramientas completa */
+  hideToolbar?: boolean;
+}
+
+/** Grupos/controles de la barra de herramientas que se pueden ocultar */
+export type ToolId =
+  | 'blockFormat'
+  | 'fontFamily'
+  | 'fontSize'
+  | 'textStyle'
+  | 'colors'
+  | 'alignment'
+  | 'lists'
+  | 'insert'
+  | 'history'
+  | 'fileName'
+  | 'headerFooter'
+  | 'export';
+
+/** Botón propio en la barra de herramientas */
+export interface CustomToolbarItem {
+  id: string;
+  label: string;
+  title?: string;
+  icon?: React.ReactNode;
+  onClick: () => void;
+}
+
+/** Información de la selección actual */
+export interface SelectionInfo {
+  text: string;
+  collapsed: boolean;
+  formats: TextFormat[];
+}
+
+/** Estadísticas del documento */
+export interface DocumentStats {
+  words: number;
+  characters: number;
+  pages: number;
 }
 
 /** Props del componente PdfEditor */
@@ -36,6 +85,12 @@ export interface PdfEditorProps {
   onExport?: (blob: Blob, fileName: string) => void;
   /** Callback cuando hay un error */
   onError?: (error: Error) => void;
+  /** Callback cuando cambia la selección dentro del editor */
+  onSelectionChange?: (selection: SelectionInfo) => void;
+  /** Callback con estadísticas (palabras, caracteres, páginas) cuando cambian */
+  onStatsChange?: (stats: DocumentStats) => void;
+  /** Callback cuando cambian la cabecera, el pie o el nombre de archivo */
+  onDocumentMetaChange?: (meta: { header: string; footer: string; fileName: string }) => void;
   /** Clases CSS adicionales */
   className?: string;
   /** Estilos inline adicionales */
