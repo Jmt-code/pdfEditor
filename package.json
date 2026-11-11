@@ -7,6 +7,9 @@
   "scripts": {
     "dev": "npm run dev --workspace=example-app",
     "build": "npm run build --workspace=@jmt-code/pdf-creator && npm run build --workspace=@jmt-code/pdf-editor && npm run build --workspace=example-app",
+    "typecheck": "npm run typecheck --workspace=@jmt-code/pdf-creator && npm run build --workspace=@jmt-code/pdf-creator && npm run typecheck --workspace=@jmt-code/pdf-editor && npm run typecheck --workspace=example-app",
+    "test": "npm run test --workspace=@jmt-code/pdf-creator && npm run test --workspace=@jmt-code/pdf-editor",
+    "ci": "npm run typecheck && npm run test && npm run build",
     "deploy": "npm run deploy --workspace=example-app"
   }
 }

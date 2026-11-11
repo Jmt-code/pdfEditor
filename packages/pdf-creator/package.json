@@ -1,16 +1,21 @@
 {
   "name": "@jmt-code/pdf-creator",
   "version": "0.1.0",
-  "description": "A library for generating PDF documents",
+  "description": "Zero-dependency PDF 1.7 generator for the browser",
   "type": "module",
-  "main": "dist/index.js",
-  "module": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "default": "./dist/index.js"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     }
   },
   "files": [
@@ -18,8 +23,11 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc",
-    "prepublishOnly": "npm run build"
+    "build": "tsup src/index.ts --format esm,cjs --dts --clean --target es2020",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "prepublishOnly": "npm run typecheck && npm run test && npm run build"
   },
   "keywords": [
     "pdf",
@@ -41,9 +49,13 @@
   "publishConfig": {
     "access": "public"
   },
-  "dependencies": {},
   "devDependencies": {
+    "@types/node": "^20.0.0",
+    "jsdom": "^25.0.1",
+    "pdfjs-dist": "^4.10.38",
+    "tsup": "^8.5.1",
     "typescript": "^5.0.0",
-    "@types/node": "^20.0.0"
-  }
+    "vitest": "^3.2.7"
+  },
+  "sideEffects": false
 }
