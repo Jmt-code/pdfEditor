@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1
+
+- Fix: after a page break (Ctrl+Enter or `insertPageBreak()`) the caret is placed after the break. Before, in an empty paragraph (for example right after a table) the text you typed went above the break. In the middle of a paragraph, the text after the caret moves to the next page, as in Word.
+- Docs: README with an animated demo, a side-by-side editor/PDF comparison and npm badges.
+
 ## 0.1.0
 
 First public release.

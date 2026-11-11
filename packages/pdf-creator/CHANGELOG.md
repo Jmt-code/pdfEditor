@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Docs: README with a sample of the generated PDF and a link to the live demo. Example in `examples/informe.mjs`.
+
 ## 0.2.0
 
 ### Added

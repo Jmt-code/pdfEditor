@@ -4,12 +4,18 @@ Browser-only tools for creating PDF files: a zero-dependency PDF generator, and 
 
 **Live demo:** [React editor](https://jmt-code.github.io/pdfEditor/) · [SDK in plain JavaScript](https://jmt-code.github.io/pdfEditor/sdk.html)
 
+![Typing in the editor: Markdown shortcuts, a table, a manual page break and PDF export](https://raw.githubusercontent.com/Jmt-code/pdfEditor/main/docs/images/editor-demo.gif)
+
+![The first page in the editor (left) and in the exported PDF (right)](https://raw.githubusercontent.com/Jmt-code/pdfEditor/main/docs/images/editor-vs-pdf.png)
+
+<sub>Left: the editor. Right: the exported PDF. Same layout, same page breaks.</sub>
+
 ## Packages
 
 | Package | Description |
 |---|---|
 | **[@jmt-code/pdf-creator](./packages/pdf-creator)** [![npm](https://img.shields.io/npm/v/@jmt-code/pdf-creator.svg)](https://www.npmjs.com/package/@jmt-code/pdf-creator) | Zero-dependency PDF 1.7 generator. Page sizes and margins, paragraphs that wrap and break pages on their own, standard fonts with accents, `ñ` and `€`, exact metrics, images, lines, rectangles, links, headers and footers. |
-| **[@jmt-code/pdf-editor](./packages/pdf-editor)** | Word-like web editor with A4 pages, header/footer, tables, page breaks, clean paste from Word/Docs, i18n (en/es) and themes. Exports to PDF (matching the editor layout), HTML and print. Available as a React 18/19 component, as an SDK (`createEditor`) and as a `<script>` bundle. |
+| **[@jmt-code/pdf-editor](./packages/pdf-editor)** [![npm](https://img.shields.io/npm/v/@jmt-code/pdf-editor.svg)](https://www.npmjs.com/package/@jmt-code/pdf-editor) | Word-like web editor with A4 pages, header/footer, tables, page breaks, clean paste from Word/Docs, i18n (en/es) and themes. Exports to PDF (matching the editor layout), HTML and print. Available as a React 18/19 component, as an SDK (`createEditor`) and as a `<script>` bundle. |
 | [example-app](./packages/example-app) | Demos published on GitHub Pages: React (`/`) and the SDK in plain JS (`/sdk.html`). |
 
 ## Quick example

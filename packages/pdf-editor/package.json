@@ -1,6 +1,6 @@
 {
   "name": "@jmt-code/pdf-editor",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "React rich-text editor (Word-like A4 pages) with PDF export",
   "type": "module",
   "main": "./dist/pdf-editor.cjs",

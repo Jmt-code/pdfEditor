@@ -1,8 +1,13 @@
 # @jmt-code/pdf-editor
 
+[![npm version](https://img.shields.io/npm/v/@jmt-code/pdf-editor.svg)](https://www.npmjs.com/package/@jmt-code/pdf-editor)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A Word-like document editor for the web (A4 pages, header and footer, tables, page breaks, Markdown shortcuts) with PDF export that matches what you see. Use it as a React component or, from any framework or plain HTML, as an SDK.
 
 **Live demo:** [React editor](https://jmt-code.github.io/pdfEditor/) · [SDK in plain JavaScript](https://jmt-code.github.io/pdfEditor/sdk.html)
+
+![Typing in the editor: Markdown shortcuts, a table, a manual page break and PDF export](https://raw.githubusercontent.com/Jmt-code/pdfEditor/main/docs/images/editor-demo.gif)
 
 ## Features
 
@@ -63,6 +68,8 @@ editor.destroy();
 ```
 
 The container must have a height: the editor fills it.
+
+![The SDK demo: an editor created with createEditor() from plain JavaScript, with a custom theme, a Spanish UI and buttons that call the SDK](https://raw.githubusercontent.com/Jmt-code/pdfEditor/main/docs/images/sdk-demo.png)
 
 ### `<script>` tag (no build step)
 
@@ -193,6 +200,10 @@ Inline formatting is applied when you type a space after the closing marker:
 The typed text is always inserted as text, never as HTML.
 
 ## PDF Export
+
+![The first page in the editor (left) and in the exported PDF (right)](https://raw.githubusercontent.com/Jmt-code/pdfEditor/main/docs/images/editor-vs-pdf.png)
+
+<sub>Left: the editor. Right: the exported PDF. Same layout, same page breaks.</sub>
 
 The PDF uses the same layout as the editor. The browser lays out the content with the editor's styles, and the exporter measures where every word, image, background, border, bullet or number, underline and link ends up, then draws it at that spot in the PDF. As a result:
 

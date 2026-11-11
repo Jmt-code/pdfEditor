@@ -157,8 +157,55 @@ export function useEditorCommands(
 
   /** Inserta un salto de página manual (afecta al PDF y al contador de páginas). */
   const insertPageBreak = useCallback(() => {
+    const editor = editorRef.current;
+    if (disabledRef.current || !editor) return;
+    const existing = new Set(editor.querySelectorAll('[data-page-break]'));
+    // ¿El cursor está en mitad de un bloque? Entonces, como en Word, el texto que queda detrás
+    // del cursor pasa a la página siguiente y el cursor se queda delante de él.
+    let splitsBlock = false;
+    const sel = window.getSelection();
+    if (sel?.rangeCount && editor.contains(sel.anchorNode)) {
+      const caret = sel.getRangeAt(0);
+      const start = caret.endContainer;
+      const block = (start.nodeType === Node.ELEMENT_NODE ? start as Element : start.parentElement)
+        ?.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, div');
+      if (block && block !== editor && editor.contains(block)) {
+        const tail = document.createRange();
+        tail.setStart(caret.endContainer, caret.endOffset);
+        tail.setEnd(block, block.childNodes.length);
+        splitsBlock = tail.toString().length > 0;
+      }
+    }
     execCommand('insertHTML', '<div data-page-break="true"></div><p><br></p>');
-  }, [execCommand]);
+    const marker = Array.from(editor.querySelectorAll('[data-page-break]')).find((m) => !existing.has(m));
+    if (!marker) return;
+
+    // Chrome, al insertar en un párrafo vacío (p. ej. tras una tabla), deja el cursor y el
+    // párrafo delante del salto y descarta el de detrás: lo que se escriba debe ir después.
+    const isEmptyBlock = (el: Element | null): el is HTMLElement =>
+      !!el && /^(P|DIV|H[1-6])$/.test(el.tagName) && !el.hasAttribute('data-page-break') &&
+      !el.textContent && !el.querySelector('img, table, hr');
+    let next = marker.nextElementSibling;
+    if (splitsBlock && isEmptyBlock(next) && next.nextElementSibling) {
+      const rest = next.nextElementSibling;
+      next.remove();
+      next = rest;
+    } else if (!isEmptyBlock(next)) {
+      next = document.createElement('p');
+      next.appendChild(document.createElement('br'));
+      marker.after(next);
+    }
+    const prev = marker.previousElementSibling;
+    if (isEmptyBlock(prev)) prev.remove();
+
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.setStart(next, 0);
+    range.collapse(true);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    savedRange.current = range.cloneRange();
+  }, [editorRef, execCommand]);
 
   return {
     execCommand,
