@@ -5,6 +5,8 @@ A lightweight, dependency-free TypeScript library for generating PDF files in th
 [![npm version](https://img.shields.io/npm/v/@jmt-code/pdf-creator.svg)](https://www.npmjs.com/package/@jmt-code/pdf-creator)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+**Live demo** of the editor built on top of it: [jmt-code.github.io/pdfEditor](https://jmt-code.github.io/pdfEditor/)
+
 ## Features
 
 - **No external dependencies**: writes the PDF 1.7 format directly, with exact byte offsets.

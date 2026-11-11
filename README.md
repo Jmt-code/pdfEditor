@@ -2,6 +2,8 @@
 
 Browser-only tools for creating PDF files: a zero-dependency PDF generator, and a Word-like document editor that exports to PDF. The editor can be used as a React component or as an SDK from any framework or a `<script>` tag. No server needed.
 
+**Live demo:** [React editor](https://jmt-code.github.io/pdfEditor/) · [SDK in plain JavaScript](https://jmt-code.github.io/pdfEditor/sdk.html)
+
 ## Packages
 
 | Package | Description |

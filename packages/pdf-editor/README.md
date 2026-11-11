@@ -2,6 +2,8 @@
 
 A Word-like document editor for the web (A4 pages, header and footer, tables, page breaks, Markdown shortcuts) with PDF export that matches what you see. Use it as a React component or, from any framework or plain HTML, as an SDK.
 
+**Live demo:** [React editor](https://jmt-code.github.io/pdfEditor/) · [SDK in plain JavaScript](https://jmt-code.github.io/pdfEditor/sdk.html)
+
 ## Features
 
 - 📝 **Rich text**: block formats, font family, size and color, highlight, alignment, lists, indentation, links, images (from a URL or a file), tables, horizontal rules, undo/redo.
