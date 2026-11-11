@@ -3,25 +3,19 @@ import { PAGE_DIMENSIONS, getContentHeightPerPage } from '../types';
 
 interface PageBreakIndicatorProps {
   pageIndex: number;
-  headerText: string;
-  footerText: string;
   hasHeader: boolean;
   hasFooter: boolean;
 }
 
 export const PageBreakIndicator = memo<PageBreakIndicatorProps>(({
   pageIndex,
-  headerText,
-  footerText,
   hasHeader,
   hasFooter,
 }) => {
-  // Calcular la posición del salto de página
-  // La posición es relativa al contenedor de contenido (después del primer header)
   const contentHeight = getContentHeightPerPage(hasHeader, hasFooter);
-  // Añadir el padding del contenido a la posición
-  const breakPosition = (contentHeight + PAGE_DIMENSIONS.CONTENT_PADDING_Y_PX * 2) * (pageIndex + 1);
-  
+  const pageHeight = contentHeight + PAGE_DIMENSIONS.CONTENT_PADDING_Y_PX * 2;
+  const breakPosition = pageHeight * (pageIndex + 1);
+
   const currentPage = pageIndex + 1;
   const nextPage = pageIndex + 2;
 
@@ -32,21 +26,11 @@ export const PageBreakIndicator = memo<PageBreakIndicatorProps>(({
       role="separator"
       aria-label={`Page break between page ${currentPage} and ${nextPage}`}
     >
-      {hasFooter && (
-        <div className="page-break-footer">
-          <span>{footerText.replace('{pageNumber}', String(currentPage))}</span>
-        </div>
-      )}
-      <div className="page-break-line">
-        <span className="page-break-label">
-          Page {currentPage} / {nextPage}
-        </span>
-      </div>
-      {hasHeader && (
-        <div className="page-break-header">
-          <span>{headerText}</span>
-        </div>
-      )}
+      <div className="page-break-line" />
+      <span className="page-break-badge">
+        \u00b7\u00b7\u00b7  Page {currentPage} | {nextPage}  \u00b7\u00b7\u00b7
+      </span>
+      <div className="page-break-line" />
     </div>
   );
 });
@@ -75,8 +59,6 @@ export const PageBreaks = memo<PageBreaksProps>(({
         <PageBreakIndicator
           key={index}
           pageIndex={index}
-          headerText={headerText}
-          footerText={footerText}
           hasHeader={hasHeader}
           hasFooter={hasFooter}
         />

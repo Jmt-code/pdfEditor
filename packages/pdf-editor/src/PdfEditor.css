@@ -262,72 +262,116 @@
 .editor-workspace {
   flex: 1;
   overflow-y: auto;
-  padding: 40px;
+  overflow-x: hidden;
+  padding: 32px 40px;
   display: flex;
   flex-direction: column;
   align-items: center;
   background-color: #525659;
   position: relative;
-  min-height: 0; /* Importante para que el scroll funcione en flex containers */
+  min-height: 0;
 }
 
-/* Contenedor del documento */
+/* Contenedor del documento - múltiples páginas */
 .document-container {
   width: 794px; /* A4 width at 96 DPI */
   background: white;
   box-shadow: 
-    0 2px 8px rgba(0, 0, 0, 0.15),
-    0 0 0 1px rgba(0, 0, 0, 0.05);
+    0 2px 12px rgba(0, 0, 0, 0.2),
+    0 0 0 1px rgba(0, 0, 0, 0.08);
   display: flex;
   flex-direction: column;
-  min-height: 500px;
-  flex-shrink: 0; /* No permitir que se comprima */
-  margin-bottom: 40px; /* Espacio al final para scroll */
+  min-height: 1122px; /* At least one A4 page */
+  flex-shrink: 0;
+  margin-bottom: 40px;
+  overflow: visible;
 }
 
-/* Header/Footer del documento (visuales, para referencia) */
-.document-header,
-.document-footer {
+/* Content wrapper - relative positioned for page break overlays */
+.content-wrapper {
+  position: relative;
+  flex: 1;
+  overflow: visible;
+}
+
+/* Page header/footer visuals (first page header, last page footer) */
+.page-header-visual {
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-direction: column;
-  gap: 4px;
-  min-height: 50px;
-  padding: 12px 76px;
-  background: linear-gradient(to bottom, #fafafa, #f5f5f5);
-  border-bottom: 1px solid #e0e0e0;
-  color: #666;
+  height: 50px;
+  padding: 0 76px;
+  background: linear-gradient(to bottom, #fafafa, #ffffff);
+  border-bottom: 1px dashed #ddd;
+  color: #999;
   font-size: 10pt;
   flex-shrink: 0;
+  position: relative;
+  z-index: 1;
 }
 
-.document-footer {
-  background: linear-gradient(to top, #fafafa, #f5f5f5);
-  border-bottom: none;
-  border-top: 1px solid #e0e0e0;
+.page-footer-visual {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 50px;
+  padding: 0 76px;
+  background: linear-gradient(to top, #fafafa, #ffffff);
+  border-top: 1px dashed #ddd;
+  color: #999;
+  font-size: 10pt;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
 }
 
-.header-text,
-.footer-text {
+.page-header-text,
+.page-footer-text {
   text-align: center;
 }
 
-.footer-hint {
-  font-size: 8pt;
+/* ==================== PAGE BREAK INDICATORS ==================== */
+.page-break-indicator {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 24px;
+  transform: translateY(-50%);
+}
+
+.page-break-line {
+  flex: 1;
+  height: 0;
+  border-top: 2px dashed #b0b0b0;
+}
+
+.page-break-badge {
+  flex-shrink: 0;
+  font-size: 11px;
   color: #999;
-  font-style: italic;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  background: white;
+  padding: 2px 10px;
+  border-radius: 3px;
 }
 
 /* Editor Content Area */
 .editor-content {
+  box-sizing: border-box;
   padding: 57px 76px; /* 15mm 20mm - Márgenes A4 estándar */
   outline: none;
   font-size: 12pt;
   line-height: 1.6;
   color: #333;
-  min-height: 400px;
+  min-height: 1008px; /* A4 height minus padding */
   flex: 1;
+  position: relative;
 }
 
 .editor-content:focus {
@@ -435,7 +479,7 @@
 /* ==================== DRAG INDICATOR ==================== */
 .drag-indicator {
   position: fixed;
-  bottom: 24px;
+  bottom: 56px;
   left: 50%;
   transform: translateX(-50%);
   padding: 12px 24px;
@@ -446,6 +490,40 @@
   z-index: 1000;
   animation: slideUp 0.2s ease;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* ==================== STATUS BAR ==================== */
+.editor-status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 16px;
+  background: #f0f0f0;
+  border-top: 1px solid #d4d4d4;
+  font-size: 12px;
+  color: #666;
+  min-height: 24px;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.page-indicator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #555;
+  padding: 2px 8px;
+  border-radius: 3px;
+}
+
+.page-indicator:hover {
+  background: #e0e0e0;
+}
+
+.status-info {
+  color: #888;
+  font-size: 11px;
 }
 
 @keyframes slideUp {
@@ -489,6 +567,7 @@
 
   .document-container {
     width: 100%;
+    min-height: auto;
   }
 
   .editor-content {
@@ -496,10 +575,14 @@
     min-height: 300px;
   }
 
-  .page-header,
-  .page-footer {
+  .page-header-visual,
+  .page-footer-visual {
     padding: 0 16px;
     height: 40px;
+  }
+
+  .page-break-indicator {
+    padding: 0 12px;
   }
 
   .header-footer-panel {
@@ -510,13 +593,20 @@
   .toolbar-section {
     flex-wrap: wrap;
   }
+
+  .editor-status-bar {
+    font-size: 11px;
+    padding: 3px 12px;
+  }
 }
 
 /* ==================== PRINT ==================== */
 @media print {
   .editor-toolbar,
   .header-footer-panel,
-  .drag-indicator {
+  .drag-indicator,
+  .editor-status-bar,
+  .page-break-indicator {
     display: none !important;
   }
 
@@ -528,6 +618,7 @@
   .document-container {
     box-shadow: none;
     width: 100%;
+    min-height: auto;
   }
 }
 
@@ -589,8 +680,27 @@
     background-color: #2d2d2d;
   }
 
+  .page-break-line {
+    border-top-color: #555;
+  }
+
+  .page-break-badge {
+    color: #888;
+    background: #2a2a2a;
+  }
+
+  .editor-status-bar {
+    background: #252525;
+    border-top-color: #3d3d3d;
+    color: #999;
+  }
+
+  .page-indicator {
+    color: #999;
+  }
+
   /* Keep page white for document feel */
-  .editor-page {
+  .document-container {
     background: white;
   }
 
@@ -598,9 +708,9 @@
     color: #333;
   }
 
-  .page-header,
-  .page-footer {
-    background: #f5f5f5;
+  .page-header-visual,
+  .page-footer-visual {
+    background: #fafafa;
   }
 }
 

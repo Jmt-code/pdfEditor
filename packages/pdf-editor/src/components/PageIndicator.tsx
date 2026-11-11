@@ -12,7 +12,7 @@ export const PageIndicator = memo<PageIndicatorProps>(({ currentPage, totalPages
     aria-live="polite"
     aria-label={`Page ${currentPage} of ${totalPages}`}
   >
-    Page {currentPage} of {totalPages}
+    📄 Page {currentPage} of {totalPages}
   </div>
 ));
 

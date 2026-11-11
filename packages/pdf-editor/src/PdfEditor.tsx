@@ -10,11 +10,14 @@ import {
   Toolbar,
   HeaderFooterPanel,
   DragIndicator,
+  PageBreaks,
+  PageIndicator,
 } from './components';
 import {
   useEditorCommands,
   useMarkdownShortcuts,
   useDragAndDrop,
+  usePageCalculation,
 } from './hooks';
 import { generatePdfFromContent, downloadPdf } from './utils';
 import type {
@@ -23,6 +26,7 @@ import type {
   EditorState,
   TextFormat,
 } from './types';
+import { PAGE_DIMENSIONS } from './types';
 import './PdfEditor.css';
 
 /** Contenido inicial por defecto */
@@ -106,6 +110,11 @@ export const PdfEditor = forwardRef<PdfEditorRef, PdfEditorProps>(
     const { getDragState, handlePointerDown, handlePointerUp, handlePointerCancel } =
       useDragAndDrop(editorRef);
 
+    // Page calculation
+    const hasHeader = Boolean(state.headerText);
+    const hasFooter = Boolean(state.footerText);
+    const { pageCount, recalculate } = usePageCalculation(editorRef, hasHeader, hasFooter);
+
     // Generar PDF
     const handleExport = useCallback(async () => {
       if (!editorRef.current || isExporting) return;
@@ -172,12 +181,12 @@ export const PdfEditor = forwardRef<PdfEditorRef, PdfEditorProps>(
     const handleInput = useCallback(() => {
       handleMarkdownInput();
       updateActiveFormats();
+      recalculate();
 
-      // Notificar cambio de contenido
       if (onChange && editorRef.current) {
         onChange(editorRef.current.innerHTML);
       }
-    }, [handleMarkdownInput, updateActiveFormats, onChange]);
+    }, [handleMarkdownInput, updateActiveFormats, onChange, recalculate]);
 
     // Save content on blur
     const handleBlur = useCallback(() => {
@@ -258,46 +267,63 @@ export const PdfEditor = forwardRef<PdfEditorRef, PdfEditorProps>(
           />
         )}
 
-        {/* Editor Workspace - Editor continuo */}
+        {/* Editor Workspace - Word-like pages */}
         <div className="editor-workspace">
           <div className="document-container">
-            {/* Header visual (solo para referencia del usuario) */}
+            {/* First page header */}
             {state.headerText && (
-              <div className="document-header">
-                <span className="header-text">{state.headerText}</span>
+              <div className="page-header-visual">
+                <span className="page-header-text">{state.headerText}</span>
               </div>
             )}
-            
-            {/* Área de contenido editable - sin límites de página */}
-            <div
-              ref={editorRef}
-              className="editor-content"
-              contentEditable={!mergedConfig.readOnly}
-              suppressContentEditableWarning
-              onKeyDown={handleKeyDown}
-              onInput={handleInput}
-              onBlur={handleBlur}
-              onMouseUp={updateActiveFormats}
-              onPointerDown={handlePointerDown}
-              onPointerUp={handlePointerUp}
-              onPointerCancel={handlePointerCancel}
-              dangerouslySetInnerHTML={{ __html: state.content }}
-              role="textbox"
-              aria-multiline="true"
-              aria-label="Document editor"
-              data-placeholder={mergedConfig.placeholder}
-            />
-            
-            {/* Footer visual (solo para referencia del usuario) */}
+
+            {/* Content wrapper with page break overlays */}
+            <div className="content-wrapper">
+              <div
+                ref={editorRef}
+                className="editor-content"
+                contentEditable={!mergedConfig.readOnly}
+                suppressContentEditableWarning
+                onKeyDown={handleKeyDown}
+                onInput={handleInput}
+                onBlur={handleBlur}
+                onMouseUp={updateActiveFormats}
+                onPointerDown={handlePointerDown}
+                onPointerUp={handlePointerUp}
+                onPointerCancel={handlePointerCancel}
+                dangerouslySetInnerHTML={{ __html: state.content }}
+                role="textbox"
+                aria-multiline="true"
+                aria-label="Document editor"
+                data-placeholder={mergedConfig.placeholder}
+                style={{ minHeight: `${PAGE_DIMENSIONS.HEIGHT_PX - (hasHeader ? PAGE_DIMENSIONS.HEADER_HEIGHT_PX : 0) - (hasFooter ? PAGE_DIMENSIONS.FOOTER_HEIGHT_PX : 0)}px` }}
+              />
+
+              {/* Page break overlays */}
+              <PageBreaks
+                pageCount={pageCount}
+                headerText={state.headerText}
+                footerText={state.footerText}
+              />
+            </div>
+
+            {/* Last page footer */}
             {state.footerText && (
-              <div className="document-footer">
-                <span className="footer-text">
-                  {state.footerText.replace('{pageNumber}', '•')}
+              <div className="page-footer-visual">
+                <span className="page-footer-text">
+                  {state.footerText.replace('{pageNumber}', String(pageCount))}
                 </span>
-                <span className="footer-hint">(Page numbers added on export)</span>
               </div>
             )}
           </div>
+        </div>
+
+        {/* Status bar */}
+        <div className="editor-status-bar">
+          <PageIndicator currentPage={1} totalPages={pageCount} />
+          <span className="status-info">
+            {isExporting ? 'Exporting PDF...' : `${fileName || 'document'}.pdf`}
+          </span>
         </div>
 
         {/* Drag indicator */}
