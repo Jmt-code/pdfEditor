@@ -32,7 +32,9 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
   ],
   "sideEffects": [
     "**/*.css"
@@ -69,7 +71,7 @@
     "react-dom": "^18.2.0 || ^19.0.0"
   },
   "dependencies": {
-    "@jmt-code/pdf-creator": "^0.1.0",
+    "@jmt-code/pdf-creator": "^0.2.0",
     "dompurify": "^3.4.17"
   },
   "devDependencies": {
