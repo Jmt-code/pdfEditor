@@ -1,51 +1,178 @@
-import { PdfCreator, TextOptions } from '@jmt-code/pdf-creator';
-import { PAGE_DIMENSIONS } from '../types';
+import { PdfCreator } from '@jmt-code/pdf-creator';
+import { PAGE_DIMENSIONS, getContentHeightPerPage } from '../types';
+import { collectLayout, paginate, pageIndexFor } from './htmlLayout';
+import type { HtmlLayout, TextRun } from './htmlLayout';
+import { sanitizeHtml, isSafeUrl } from './sanitize';
 
-interface ComputedStyles {
-  fontWeight: string;
-  fontStyle: string;
-  textDecoration: string;
-  textAlign: 'left' | 'center' | 'right' | 'justify';
-  color: string;
-  fontSize: string;
-  fontFamily: string;
+/** 1 px CSS (96 DPI) = 0,75 pt PDF (72 DPI) */
+const PX_TO_PT = 0.75;
+
+interface RenderTarget {
+  /** Origen del área de contenido en la página PDF, en puntos */
+  originX: number;
+  originY: number;
+  /** Página PDF (índice 0) en la que empieza el contenido */
+  firstPage: number;
+  /** Origen Y en las páginas siguientes a la primera, en puntos */
+  nextPagesOriginY: number;
+  /** Alto del área de contenido de una página, en px */
+  pageHeightPx: number;
 }
 
-interface LineBufferItem {
-  text: string;
-  style: TextOptions;
-}
-
-/**
- * Convierte un color RGB a hexadecimal
- */
-function rgbToHex(rgb: string): string {
-  const match = rgb.match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/);
-  if (!match) return '#000000';
-  const r = parseInt(match[1]).toString(16).padStart(2, '0');
-  const g = parseInt(match[2]).toString(16).padStart(2, '0');
-  const b = parseInt(match[3]).toString(16).padStart(2, '0');
-  return `#${r}${g}${b}`;
+interface MountedLayout {
+  layout: HtmlLayout;
 }
 
 /**
- * Obtiene los estilos computados de un elemento
+ * Monta el HTML (saneado) fuera de pantalla con los estilos del editor, espera a fuentes e
+ * imágenes y mide la maquetación. El nodo temporal se elimina siempre.
  */
-function getComputedStyles(el: HTMLElement): ComputedStyles {
-  const computed = window.getComputedStyle(el);
-  return {
-    fontWeight: computed.fontWeight,
-    fontStyle: computed.fontStyle,
-    textDecoration: computed.textDecoration,
-    textAlign: computed.textAlign as 'left' | 'center' | 'right' | 'justify',
-    color: computed.color,
-    fontSize: computed.fontSize,
-    fontFamily: computed.fontFamily,
+async function measureHtml(html: string, widthPx?: number): Promise<MountedLayout> {
+  const host = document.createElement('div');
+  host.className = 'pdf-editor pdf-editor--measure';
+  host.setAttribute('aria-hidden', 'true');
+  host.style.cssText =
+    // Sin visibility:hidden: se hereda y el recolector ignora el texto oculto
+    'position:fixed;left:-100000px;top:0;opacity:0;pointer-events:none;' +
+    'height:auto;min-height:0;overflow:visible;display:block;';
+
+  const content = document.createElement('div');
+  content.className = 'editor-content';
+  content.style.cssText = widthPx
+    ? `width:${widthPx}px;padding:0;min-height:0;box-sizing:content-box;`
+    : `width:${PAGE_DIMENSIONS.WIDTH_PX}px;min-height:0;box-sizing:border-box;`;
+  content.innerHTML = sanitizeHtml(html);
+  host.appendChild(content);
+  document.body.appendChild(host);
+
+  try {
+    const images = Array.from(content.querySelectorAll('img'));
+    await Promise.all(
+      images.map(img => (img.complete ? Promise.resolve() : img.decode().catch(() => undefined)))
+    );
+    if (document.fonts?.ready) await document.fonts.ready;
+
+    return {
+      layout: collectLayout(content, { decorations: true, isAllowedUrl: isSafeUrl }),
+    };
+  } finally {
+    host.remove();
+  }
+}
+
+/**
+ * Dibuja una maquetación ya paginada sobre un PdfCreator.
+ * Devuelve los avisos no fatales (p. ej. imágenes que no se pudieron cargar).
+ */
+async function renderLayout(
+  pdf: PdfCreator,
+  layout: HtmlLayout,
+  breaks: number[],
+  target: RenderTarget
+): Promise<string[]> {
+  const warnings: string[] = [];
+  const pageNeeded = target.firstPage + breaks.length - 1;
+  while (pdf.getPageCount() <= pageNeeded) pdf.addPage();
+
+  /** Convierte una Y del contenido (px) a página + Y en puntos */
+  const place = (yPx: number, pageIndex = pageIndexFor(breaks, yPx)) => {
+    const origin = pageIndex === 0 ? target.originY : target.nextPagesOriginY;
+    return {
+      page: target.firstPage + pageIndex,
+      y: origin + (yPx - breaks[pageIndex]) * PX_TO_PT,
+    };
   };
+  const toX = (xPx: number) => target.originX + xPx * PX_TO_PT;
+
+  // 1. Fondos y bordes (se reparten entre páginas si cruzan un salto)
+  for (const fill of layout.fills) {
+    const top = fill.y;
+    const bottom = fill.y + fill.height;
+    for (let k = 0; k < breaks.length; k++) {
+      const pageStart = breaks[k];
+      const pageEnd = k + 1 < breaks.length ? breaks[k + 1] : Infinity;
+      const segTop = Math.max(top, pageStart);
+      const segBottom = Math.min(bottom, pageEnd);
+      if (segBottom - segTop <= 0.01) continue;
+      const { page, y } = place(segTop, k);
+      pdf.setPage(page);
+      pdf.addRect(toX(fill.x), y, fill.width * PX_TO_PT, (segBottom - segTop) * PX_TO_PT, { fill: fill.color });
+    }
+  }
+
+  // 2. Imágenes
+  for (const atom of layout.atoms) {
+    if (atom.kind !== 'image') continue;
+    const { page, y } = place(atom.y);
+    pdf.setPage(page);
+    try {
+      // Una imagen más alta que la página se reduce proporcionalmente para que quepa
+      const scale = Math.min(1, target.pageHeightPx / atom.height);
+      await pdf.addImage(atom.src, toX(atom.x), y, {
+        width: atom.width * scale * PX_TO_PT,
+        height: atom.height * scale * PX_TO_PT,
+      });
+    } catch (error) {
+      warnings.push(`Image skipped (${atom.src.slice(0, 80)}): ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  // 3. Texto: cada palabra en la posición medida por el navegador
+  for (const atom of layout.atoms) {
+    if (atom.kind !== 'text') continue;
+    drawRun(pdf, atom, place, toX);
+  }
+
+  // 4. Subrayados / tachados
+  for (const line of layout.lines) {
+    const { page, y } = place(line.y);
+    pdf.setPage(page);
+    pdf.addLine(toX(line.x1), y, toX(line.x2), y, { color: line.color, width: line.thickness * PX_TO_PT });
+  }
+
+  // 5. Enlaces
+  for (const link of layout.links) {
+    const { page, y } = place(link.y);
+    pdf.setPage(page);
+    pdf.addLink(toX(link.x), y, link.width * PX_TO_PT, link.height * PX_TO_PT, link.url);
+  }
+
+  return warnings;
+}
+
+function drawRun(
+  pdf: PdfCreator,
+  run: TextRun,
+  place: (yPx: number, pageIndex?: number) => { page: number; y: number },
+  toX: (xPx: number) => number
+): void {
+  // La página se decide por la parte superior de la caja (igual que en paginate)
+  const pageIndexPlace = place(run.y);
+  const baselineY = pageIndexPlace.y + (run.baseline - run.y) * PX_TO_PT;
+  pdf.setPage(pageIndexPlace.page);
+
+  const size = run.sizePx * PX_TO_PT;
+  const options = { size, font: run.font, style: run.style, color: run.color };
+  const naturalWidth = pdf.getTextWidth(run.text, options);
+  const targetWidth = run.width * PX_TO_PT;
+
+  if (run.fit === false) {
+    pdf.addText(run.text, toX(run.x) + targetWidth - naturalWidth, baselineY, options);
+    return;
+  }
+
+  // Ajusta el ancho de la fuente PDF al que ocupa la palabra en pantalla
+  const scale = naturalWidth > 0 ? (targetWidth / naturalWidth) * 100 : 100;
+  pdf.addText(run.text, toX(run.x), baselineY, {
+    ...options,
+    horizontalScale: Math.min(200, Math.max(50, scale)),
+  });
 }
 
 /**
- * Parsea el contenido HTML y lo convierte a comandos PDF
+ * Pinta HTML en un PdfCreator existente a partir de (startX, startY) con un ancho dado (en
+ * puntos). Las páginas siguientes empiezan en la parte superior del área de contenido.
+ * Devuelve la Y (en puntos) bajo el último contenido de la última página usada.
  */
 export async function parseHtmlToPdf(
   pdf: PdfCreator,
@@ -54,241 +181,37 @@ export async function parseHtmlToPdf(
   startY: number,
   width: number
 ): Promise<number> {
-  const tempDiv = document.createElement('div');
-  tempDiv.innerHTML = html;
-  tempDiv.style.cssText = `position:absolute;visibility:hidden;width:${width}px;`;
-  document.body.appendChild(tempDiv);
+  const { layout } = await measureHtml(html, width / PX_TO_PT);
+  const area = pdf.getContentArea();
+  const firstPageHeightPx = (area.bottom - startY) / PX_TO_PT;
+  const pageHeightPx = (area.bottom - area.top) / PX_TO_PT;
 
-  let currentX = startX;
-  let currentY = startY;
-  let currentAlign: 'left' | 'center' | 'right' = 'left';
-  let lineBuffer: LineBufferItem[] = [];
+  // La primera página puede tener menos espacio: se pagina con un desplazamiento virtual
+  const offset = pageHeightPx - firstPageHeightPx;
+  const shifted = { atoms: layout.atoms.map(a => ({ ...a, y: a.y + offset })) };
+  const breaks = paginate(shifted, pageHeightPx).map((b, i) => (i === 0 ? 0 : b - offset));
 
-  /**
-   * Descarga el buffer de línea actual con la alineación correcta
-   */
-  function flushLine(): void {
-    if (lineBuffer.length === 0) return;
-
-    // Calcular ancho total de la línea
-    let totalWidth = 0;
-    for (const item of lineBuffer) {
-      totalWidth += pdf.getTextWidth(item.text, item.style);
-    }
-
-    // Calcular X inicial basado en alineación
-    let lineX = startX;
-    if (currentAlign === 'center') {
-      lineX = startX + (width - totalWidth) / 2;
-    } else if (currentAlign === 'right') {
-      lineX = startX + width - totalWidth;
-    }
-
-    // Renderizar todos los items de la línea
-    for (const item of lineBuffer) {
-      const result = pdf.addText(item.text, lineX, currentY, {
-        ...item.style,
-        marginX: startX,
-      });
-      if (result.pageBreak) {
-        currentY = result.y;
-        lineX = startX;
-      } else {
-        lineX += pdf.getTextWidth(item.text, item.style);
-      }
-    }
-
-    lineBuffer = [];
-  }
-
-  /**
-   * Mapea el nombre de fuente del CSS a la fuente PDF
-   */
-  function mapFontFamily(fontFamily: string): 'helvetica' | 'times' | 'courier' {
-    const lower = fontFamily.toLowerCase();
-    if (lower.includes('times')) return 'times';
-    if (lower.includes('courier') || lower.includes('monospace')) return 'courier';
-    return 'helvetica';
-  }
-
-  /**
-   * Procesa recursivamente los nodos del DOM
-   */
-  function traverse(node: Node, inheritedStyle: TextOptions): void {
-    if (node.nodeType === Node.TEXT_NODE) {
-      const text = node.textContent || '';
-      if (!text.trim() && !text.includes(' ')) return;
-
-      const words = text.split(/(\s+)/);
-      const style = { ...inheritedStyle };
-
-      for (const word of words) {
-        if (!word) continue;
-
-        const textWidth = pdf.getTextWidth(word, style);
-
-        // Verificar si necesitamos wrap a la siguiente línea
-        let lineWidth = 0;
-        for (const item of lineBuffer) {
-          lineWidth += pdf.getTextWidth(item.text, item.style);
-        }
-
-        if (lineWidth + textWidth > width && lineBuffer.length > 0) {
-          flushLine();
-          currentY += (style.size || 12) * 1.5;
-          currentX = startX;
-        }
-
-        lineBuffer.push({ text: word, style });
-        currentX += textWidth;
-      }
-    } else if (node.nodeType === Node.ELEMENT_NODE) {
-      const el = node as HTMLElement;
-      const newStyle: TextOptions = { ...inheritedStyle };
-      const computed = getComputedStyles(el);
-
-      // Obtener alineación de texto
-      if (computed.textAlign === 'center' || computed.textAlign === 'right') {
-        currentAlign = computed.textAlign;
-      } else {
-        currentAlign = 'left';
-      }
-
-      // Aplicar estilos del elemento
-      if (computed.fontWeight === 'bold' || parseInt(computed.fontWeight) >= 700) {
-        newStyle.style = newStyle.style === 'italic' ? 'bolditalic' : 'bold';
-      }
-
-      if (computed.fontStyle === 'italic') {
-        newStyle.style = newStyle.style === 'bold' ? 'bolditalic' : 'italic';
-      }
-
-      if (computed.color && computed.color !== 'rgb(0, 0, 0)') {
-        newStyle.color = rgbToHex(computed.color);
-      }
-
-      const fontSize = parseFloat(computed.fontSize);
-      if (fontSize) {
-        newStyle.size = fontSize * 0.75; // Convertir px a pt aproximadamente
-      }
-
-      newStyle.font = mapFontFamily(computed.fontFamily);
-
-      // Manejar elementos específicos
-      switch (el.tagName) {
-        case 'H1':
-          flushLine();
-          newStyle.size = 24;
-          newStyle.style = 'bold';
-          if (currentX > startX) {
-            currentY += 28;
-            currentX = startX;
-          }
-          currentY += 8;
-          break;
-
-        case 'H2':
-          flushLine();
-          newStyle.size = 20;
-          newStyle.style = 'bold';
-          if (currentX > startX) {
-            currentY += 24;
-            currentX = startX;
-          }
-          currentY += 6;
-          break;
-
-        case 'H3':
-          flushLine();
-          newStyle.size = 16;
-          newStyle.style = 'bold';
-          if (currentX > startX) {
-            currentY += 20;
-            currentX = startX;
-          }
-          currentY += 4;
-          break;
-
-        case 'CODE':
-          newStyle.font = 'courier';
-          newStyle.size = 10;
-          break;
-
-        case 'PRE':
-          flushLine();
-          newStyle.font = 'courier';
-          newStyle.size = 10;
-          if (currentX > startX) {
-            currentY += 16;
-            currentX = startX;
-          }
-          break;
-
-        case 'BLOCKQUOTE':
-          flushLine();
-          newStyle.color = '#666666';
-          currentX = startX + 30;
-          if (currentY > startY) currentY += 8;
-          break;
-      }
-
-      // Elementos de bloque - nueva línea antes
-      if (['DIV', 'P', 'BR', 'H1', 'H2', 'H3', 'LI', 'PRE', 'BLOCKQUOTE'].includes(el.tagName)) {
-        flushLine();
-        if (currentX > startX && el.tagName !== 'BR') {
-          currentY += (inheritedStyle.size || 12) * 1.5;
-          currentX = startX;
-        } else if (el.tagName === 'BR') {
-          currentY += (inheritedStyle.size || 12) * 1.5;
-          currentX = startX;
-        }
-      }
-
-      // Items de lista
-      if (el.tagName === 'LI') {
-        lineBuffer.push({ text: '• ', style: inheritedStyle });
-      }
-
-      // Procesar hijos
-      el.childNodes.forEach((child) => traverse(child, newStyle));
-
-      // Elementos de bloque - nueva línea después
-      if (['DIV', 'P', 'H1', 'H2', 'H3', 'BLOCKQUOTE', 'PRE', 'UL', 'OL'].includes(el.tagName)) {
-        flushLine();
-        currentY += (newStyle.size || 12) * 1.5;
-        currentX = startX;
-        // Espaciado extra después de párrafos y headings
-        if (['P', 'H1', 'H2', 'H3'].includes(el.tagName)) {
-          currentY += 4;
-        }
-      }
-
-      // Resetear alineación después de elemento de bloque
-      if (['DIV', 'P', 'H1', 'H2', 'H3'].includes(el.tagName)) {
-        currentAlign = 'left';
-      }
-    }
-  }
-
-  // Comenzar el traversal
-  traverse(tempDiv, {
-    size: 12,
-    font: 'helvetica',
-    style: 'normal',
-    color: '#000000',
+  const firstPage = pdf.getCurrentPageIndex();
+  await renderLayout(pdf, layout, breaks, {
+    originX: startX,
+    originY: startY,
+    firstPage,
+    nextPagesOriginY: area.top,
+    pageHeightPx,
   });
 
-  // Descargar contenido restante
-  flushLine();
-
-  // Limpiar
-  document.body.removeChild(tempDiv);
-
-  return currentY + 20;
+  const lastIndex = breaks.length - 1;
+  const lastBottom = layout.atoms
+    .filter(a => pageIndexFor(breaks, a.y) === lastIndex)
+    .reduce((max, a) => Math.max(max, a.y + a.height), breaks[lastIndex]);
+  const origin = lastIndex === 0 ? startY : area.top;
+  pdf.setPage(firstPage + lastIndex);
+  return origin + (lastBottom - breaks[lastIndex]) * PX_TO_PT;
 }
 
 /**
- * Genera el PDF a partir del contenido del editor
+ * Genera el PDF a partir del contenido del editor, con la misma maquetación A4 que la vista
+ * del editor (márgenes, cabecera y pie incluidos).
  */
 export async function generatePdfFromContent(
   content: string,
@@ -296,30 +219,33 @@ export async function generatePdfFromContent(
   footerText: string,
   _fileName?: string
 ): Promise<Blob> {
-  const headerH = headerText ? 50 : 0;
-  const footerH = footerText ? 50 : 0;
+  const hasHeader = Boolean(headerText);
+  const hasFooter = Boolean(footerText);
 
   const pdf = new PdfCreator({
-    headerHeight: headerH,
-    footerHeight: footerH,
-    defaultHeader: headerText
-      ? { text: headerText, align: 'center' }
-      : undefined,
-    defaultFooter: footerText
-      ? {
-          text: footerText.replace('{pageNumber}', ''),
-          showPageNumbers: footerText.includes('{pageNumber}'),
-          align: 'center',
-        }
+    headerHeight: hasHeader ? PAGE_DIMENSIONS.HEADER_HEIGHT_PX * PX_TO_PT : 0,
+    footerHeight: hasFooter ? PAGE_DIMENSIONS.FOOTER_HEIGHT_PX * PX_TO_PT : 0,
+    autoPageBreak: false,
+    defaultHeader: hasHeader ? { text: headerText, align: 'center', color: '#666666' } : undefined,
+    defaultFooter: hasFooter
+      ? { text: footerText, showPageNumbers: false, align: 'center', color: '#666666' }
       : undefined,
   });
 
-  const marginX = 40;
-  const marginY = 40;
-  const contentWidth = PAGE_DIMENSIONS.PDF_WIDTH - marginX * 2;
-  const startY = headerH + marginY;
+  const { layout } = await measureHtml(content);
+  const pageHeightPx = getContentHeightPerPage(hasHeader, hasFooter);
+  const breaks = paginate(layout, pageHeightPx);
 
-  await parseHtmlToPdf(pdf, content, marginX, startY, contentWidth);
+  const originY =
+    ((hasHeader ? PAGE_DIMENSIONS.HEADER_HEIGHT_PX : 0) + PAGE_DIMENSIONS.CONTENT_PADDING_Y_PX) * PX_TO_PT;
+  const warnings = await renderLayout(pdf, layout, breaks, {
+    originX: PAGE_DIMENSIONS.CONTENT_PADDING_X_PX * PX_TO_PT,
+    originY,
+    firstPage: 0,
+    nextPagesOriginY: originY,
+    pageHeightPx,
+  });
+  warnings.forEach(w => console.warn(`[pdf-editor] ${w}`));
 
   return pdf.getOutput();
 }
@@ -328,9 +254,13 @@ export async function generatePdfFromContent(
  * Descarga el PDF
  */
 export function downloadPdf(blob: Blob, fileName: string): void {
+  const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
-  link.href = URL.createObjectURL(blob);
-  link.download = fileName.endsWith('.pdf') ? fileName : `${fileName}.pdf`;
+  link.href = url;
+  link.download = fileName.toLowerCase().endsWith('.pdf') ? fileName : `${fileName}.pdf`;
+  document.body.appendChild(link);
   link.click();
-  URL.revokeObjectURL(link.href);
+  link.remove();
+  // Revocar en el mismo tick puede cancelar la descarga en algunos navegadores
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

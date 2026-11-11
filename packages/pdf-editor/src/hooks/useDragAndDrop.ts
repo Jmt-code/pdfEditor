@@ -1,83 +1,57 @@
-import { useCallback, useRef, RefObject } from 'react';
+﻿import { useCallback, useEffect, useRef, useState, RefObject } from 'react';
 import type { DragState } from '../types';
 
-const LONG_PRESS_DURATION = 500;
+const EMPTY: DragState = { isDragging: false, startX: 0, startY: 0, selection: '' };
 
-/**
- * Hook para manejar drag and drop de texto
- */
-export function useDragAndDrop(editorRef: RefObject<HTMLDivElement | null>) {
-  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const dragStateRef = useRef<DragState>({
-    isDragging: false,
-    startX: 0,
-    startY: 0,
-    selection: '',
-  });
-
-  const getDragState = useCallback(() => dragStateRef.current, []);
-
-  const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    const selection = window.getSelection();
-    if (!selection || selection.isCollapsed) return;
-    
-    const selectedText = selection.toString();
-    if (!selectedText.trim()) return;
-
-    longPressTimer.current = setTimeout(() => {
-      dragStateRef.current = {
-        isDragging: true,
-        startX: e.clientX,
-        startY: e.clientY,
-        selection: selectedText,
-      };
-      document.body.style.cursor = 'grabbing';
-    }, LONG_PRESS_DURATION);
-  }, []);
-
-  const handlePointerUp = useCallback((e: React.PointerEvent) => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-
-    const dragState = dragStateRef.current;
-    if (!dragState.isDragging || !editorRef.current) {
-      dragStateRef.current = { isDragging: false, startX: 0, startY: 0, selection: '' };
-      document.body.style.cursor = '';
-      return;
-    }
-
-    // Get drop position
-    const range = document.caretRangeFromPoint?.(e.clientX, e.clientY);
-    if (range && editorRef.current.contains(range.startContainer)) {
-      // Delete original selection
-      const selection = window.getSelection();
-      if (selection) {
-        selection.deleteFromDocument();
-      }
-      
-      // Insert at new position
-      range.insertNode(document.createTextNode(dragState.selection));
-    }
-
-    dragStateRef.current = { isDragging: false, startX: 0, startY: 0, selection: '' };
-    document.body.style.cursor = '';
-  }, [editorRef]);
-
+/** Mueve la selección conservando sus nodos y formatos. */
+export function useDragAndDrop(editorRef: RefObject<HTMLDivElement | null>, disabled = false) {
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const source = useRef<Range | null>(null);
+  const [dragState, setDragState] = useState<DragState>(EMPTY);
+  const active = useRef(false);
   const handlePointerCancel = useCallback(() => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-    dragStateRef.current = { isDragging: false, startX: 0, startY: 0, selection: '' };
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    source.current = null;
+    active.current = false;
+    setDragState(EMPTY);
     document.body.style.cursor = '';
   }, []);
-
-  return {
-    getDragState,
-    handlePointerDown,
-    handlePointerUp,
-    handlePointerCancel,
-  };
+  useEffect(() => {
+    if (disabled) handlePointerCancel();
+    return handlePointerCancel;
+  }, [disabled, handlePointerCancel]);
+  const handlePointerDown = useCallback((event: React.PointerEvent) => {
+    handlePointerCancel();
+    const selection = window.getSelection();
+    if (disabled || !selection?.rangeCount || selection.isCollapsed) return;
+    const range = selection.getRangeAt(0);
+    if (!editorRef.current?.contains(range.commonAncestorContainer)) return;
+    source.current = range.cloneRange();
+    const { clientX, clientY } = event;
+    timer.current = setTimeout(() => {
+      active.current = true;
+      setDragState({ isDragging: true, startX: clientX, startY: clientY, selection: selection.toString() });
+      document.body.style.cursor = 'grabbing';
+    }, 500);
+  }, [disabled, editorRef, handlePointerCancel]);
+  const handlePointerUp = useCallback((event: React.PointerEvent) => {
+    const original = source.current;
+    const drop = document.caretRangeFromPoint?.(event.clientX, event.clientY);
+    if (!disabled && active.current && original && drop && editorRef.current?.contains(original.commonAncestorContainer) && editorRef.current.contains(drop.startContainer) && !original.isPointInRange(drop.startContainer, drop.startOffset)) {
+      const fragment = original.extractContents();
+      const last = fragment.lastChild;
+      drop.insertNode(fragment);
+      if (last) {
+        drop.setStartAfter(last);
+        drop.collapse(true);
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(drop);
+      }
+      editorRef.current.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    handlePointerCancel();
+  }, [disabled, editorRef, handlePointerCancel]);
+  return { dragState, getDragState: () => dragState, handlePointerDown, handlePointerUp, handlePointerCancel };
 }

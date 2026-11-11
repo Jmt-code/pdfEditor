@@ -19,7 +19,7 @@ import {
   useDragAndDrop,
   usePageCalculation,
 } from './hooks';
-import { generatePdfFromContent, downloadPdf } from './utils';
+import { generatePdfFromContent, downloadPdf, sanitizeHtml } from './utils';
 import type {
   PdfEditorProps,
   PdfEditorConfig,
@@ -88,7 +88,7 @@ export const PdfEditor = forwardRef<PdfEditorRef, PdfEditorProps>(
 
     // State
     const [state, setState] = useState<EditorState>({
-      content: mergedConfig.initialContent,
+      content: sanitizeHtml(mergedConfig.initialContent),
       headerText: mergedConfig.defaultHeaderText,
       footerText: mergedConfig.defaultFooterText,
     });
@@ -101,14 +101,24 @@ export const PdfEditor = forwardRef<PdfEditorRef, PdfEditorProps>(
     );
     const [isExporting, setIsExporting] = useState(false);
 
+    const [currentPage, setCurrentPage] = useState(1);
+    const lastNotifiedContent = useRef(state.content);
+    const notifyContentChange = useCallback(() => {
+      const content = editorRef.current?.innerHTML;
+      if (content !== undefined && content !== lastNotifiedContent.current) {
+        lastNotifiedContent.current = content;
+        onChange?.(content);
+      }
+    }, [onChange]);
+
     // Hooks personalizados
     const { execCommand, formatBlock, insertLink, insertImage, updateActiveFormats } =
-      useEditorCommands(editorRef, setActiveFormats);
+      useEditorCommands(editorRef, setActiveFormats, notifyContentChange, mergedConfig.readOnly);
 
-    const { handleMarkdownInput } = useMarkdownShortcuts(editorRef, execCommand);
+    const { handleMarkdownInput } = useMarkdownShortcuts(editorRef, execCommand, mergedConfig.readOnly);
 
     const { getDragState, handlePointerDown, handlePointerUp, handlePointerCancel } =
-      useDragAndDrop(editorRef);
+      useDragAndDrop(editorRef, mergedConfig.readOnly);
 
     // Page calculation
     const hasHeader = Boolean(state.headerText);
@@ -153,6 +163,7 @@ export const PdfEditor = forwardRef<PdfEditorRef, PdfEditorProps>(
     // Keyboard shortcuts
     const handleKeyDown = useCallback(
       (e: React.KeyboardEvent) => {
+        if (mergedConfig.readOnly) return;
         if (e.ctrlKey || e.metaKey) {
           switch (e.key.toLowerCase()) {
             case 'b':
@@ -174,28 +185,27 @@ export const PdfEditor = forwardRef<PdfEditorRef, PdfEditorProps>(
           }
         }
       },
-      [execCommand, handleExport]
+      [execCommand, handleExport, mergedConfig.readOnly]
     );
 
     // Handle input
     const handleInput = useCallback(() => {
+      if (mergedConfig.readOnly) return;
       handleMarkdownInput();
       updateActiveFormats();
       recalculate();
 
-      if (onChange && editorRef.current) {
-        onChange(editorRef.current.innerHTML);
-      }
-    }, [handleMarkdownInput, updateActiveFormats, onChange, recalculate]);
+      notifyContentChange();
+    }, [handleMarkdownInput, updateActiveFormats, notifyContentChange, recalculate, mergedConfig.readOnly]);
 
     // Save content on blur
     const handleBlur = useCallback(() => {
       if (editorRef.current) {
         const newContent = editorRef.current.innerHTML;
         setState((prev) => ({ ...prev, content: newContent }));
-        onChange?.(newContent);
+        notifyContentChange();
       }
-    }, [onChange]);
+    }, [notifyContentChange]);
 
     // Expose methods via ref
     useImperativeHandle(
@@ -204,8 +214,10 @@ export const PdfEditor = forwardRef<PdfEditorRef, PdfEditorProps>(
         getContent: () => editorRef.current?.innerHTML || '',
         setContent: (html: string) => {
           if (editorRef.current) {
-            editorRef.current.innerHTML = html;
-            setState((prev) => ({ ...prev, content: html }));
+            const content = sanitizeHtml(html);
+            editorRef.current.innerHTML = content;
+            setState((prev) => ({ ...prev, content }));
+            recalculate();
           }
         },
         exportPdf: async () => {
@@ -216,22 +228,23 @@ export const PdfEditor = forwardRef<PdfEditorRef, PdfEditorProps>(
             editorRef.current.innerHTML,
             state.headerText,
             state.footerText,
-            mergedConfig.exportFileName
+            fileName.trim() || 'document'
           );
         },
-        downloadPdf: async (fileName?: string) => {
+        downloadPdf: async (name?: string) => {
+          const pdfFileName = (name || fileName).trim() || 'document';
           const blob = await generatePdfFromContent(
             editorRef.current?.innerHTML || '',
             state.headerText,
             state.footerText,
-            fileName || mergedConfig.exportFileName
+            pdfFileName
           );
-          downloadPdf(blob, fileName || mergedConfig.exportFileName);
+          downloadPdf(blob, pdfFileName);
         },
         focus: () => editorRef.current?.focus(),
         execCommand,
       }),
-      [state.headerText, state.footerText, mergedConfig.exportFileName, execCommand]
+      [state.headerText, state.footerText, fileName, execCommand, recalculate]
     );
 
     // Get drag state
@@ -241,6 +254,7 @@ export const PdfEditor = forwardRef<PdfEditorRef, PdfEditorProps>(
       <div className={`pdf-editor ${className}`} style={style}>
         {/* Main Toolbar */}
         <Toolbar
+          disabled={mergedConfig.readOnly}
           activeFormats={activeFormats}
           showHeaderFooter={showHeaderFooter}
           fileName={fileName}
@@ -268,7 +282,13 @@ export const PdfEditor = forwardRef<PdfEditorRef, PdfEditorProps>(
         )}
 
         {/* Editor Workspace - Word-like pages */}
-        <div className="editor-workspace">
+        <div className="editor-workspace" onScroll={(event) => {
+          const workspace = event.currentTarget;
+          const documentTop = workspace.querySelector('.content-wrapper')?.getBoundingClientRect().top ?? workspace.getBoundingClientRect().top;
+          const offset = Math.max(0, workspace.getBoundingClientRect().top - documentTop);
+          const pageHeight = PAGE_DIMENSIONS.HEIGHT_PX - (hasHeader ? PAGE_DIMENSIONS.HEADER_HEIGHT_PX : 0) - (hasFooter ? PAGE_DIMENSIONS.FOOTER_HEIGHT_PX : 0);
+          setCurrentPage(Math.min(pageCount, Math.floor(offset / pageHeight) + 1));
+        }}>
           <div className="document-container">
             {/* First page header */}
             {state.headerText && (
@@ -320,7 +340,7 @@ export const PdfEditor = forwardRef<PdfEditorRef, PdfEditorProps>(
 
         {/* Status bar */}
         <div className="editor-status-bar">
-          <PageIndicator currentPage={1} totalPages={pageCount} />
+          <PageIndicator currentPage={Math.min(currentPage, pageCount)} totalPages={pageCount} />
           <span className="status-info">
             {isExporting ? 'Exporting PDF...' : `${fileName || 'document'}.pdf`}
           </span>

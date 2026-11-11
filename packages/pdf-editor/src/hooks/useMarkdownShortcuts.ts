@@ -1,147 +1,73 @@
-import { useCallback, RefObject } from 'react';
+﻿import { useCallback, RefObject } from 'react';
 
-/**
- * Patrones de Markdown soportados
- */
-const MARKDOWN_PATTERNS = {
-  heading1: /^# $/,
-  heading2: /^## $/,
-  heading3: /^### $/,
-  unorderedList: /^[-*] $/,
-  orderedList: /^\d+\. $/,
-  blockquote: /^> $/,
-  codeBlock: /^```$/,
-  horizontalRule: /^---$/,
-  bold: /\*\*([^*]+)\*\*$/,
-  italic: /(?<!\*)\*([^*]+)\*(?!\*)$/,
-  strikethrough: /~~([^~]+)~~$/,
-  inlineCode: /`([^`]+)`$/,
-};
-
-/**
- * Hook para manejar los atajos de Markdown
- */
+/** Procesa Markdown sin interpretar el texto del usuario como HTML. */
 export function useMarkdownShortcuts(
   editorRef: RefObject<HTMLDivElement | null>,
-  execCommand: (command: string, value?: string) => void
+  execCommand: (command: string, value?: string) => void,
+  disabled = false
 ) {
-  /**
-   * Reemplaza texto en el nodo actual
-   */
-  const replaceText = useCallback((node: Node, start: number, end: number, replacement: string) => {
-    const range = document.createRange();
-    range.setStart(node, start);
-    range.setEnd(node, end);
-    range.deleteContents();
-    if (replacement) {
-      range.insertNode(document.createTextNode(replacement));
-    }
-  }, []);
-
-  /**
-   * Procesa los atajos de Markdown al escribir
-   */
   const handleMarkdownInput = useCallback(() => {
-    if (!editorRef.current) return;
-    
+    if (disabled || !editorRef.current) return;
     const selection = window.getSelection();
-    if (!selection?.anchorNode) return;
-    
+    if (!selection?.isCollapsed || !selection.anchorNode || !editorRef.current.contains(selection.anchorNode)) return;
     const node = selection.anchorNode;
     if (node.nodeType !== Node.TEXT_NODE) return;
-    
-    const text = node.textContent || '';
     const offset = selection.anchorOffset;
-    
-    const lineStart = text.lastIndexOf('\n', offset - 1) + 1;
-    const line = text.substring(lineStart, offset);
-
-    // Headings
-    if (MARKDOWN_PATTERNS.heading1.test(line)) {
-      execCommand('formatBlock', 'h1');
-      replaceText(node, lineStart, offset, '');
+    const text = node.textContent || '';
+    const start = text.lastIndexOf('\n', offset - 1) + 1;
+    const line = text.slice(start, offset);
+    // [  ]: Chrome escribe el espacio final de una línea como espacio duro
+    const blocks: [RegExp, string, string?][] = [
+      [/^#[  ]$/, 'formatBlock', 'h1'], [/^##[  ]$/, 'formatBlock', 'h2'],
+      [/^###[  ]$/, 'formatBlock', 'h3'], [/^[-*][  ]$/, 'insertUnorderedList'],
+      [/^\d+\.[  ]$/, 'insertOrderedList'], [/^>[  ]$/, 'formatBlock', 'blockquote'],
+      [/^```$/, 'formatBlock', 'pre'], [/^---$/, 'insertHorizontalRule'],
+    ];
+    const block = blocks.find(([pattern]) => pattern.test(line));
+    const range = document.createRange();
+    if (block) {
+      range.setStart(node, start);
+      range.setEnd(node, offset);
+      range.deleteContents();
+      // Si el bloque queda vacío, Chrome necesita un <br> para aplicar el formato a ESTE bloque;
+      // con un nodo de texto vacío puede formatear o fusionar el bloque vecino.
+      const parent = node.parentNode;
+      if (!node.textContent && parent && !(parent.textContent || '').trim()) {
+        const br = document.createElement('br');
+        parent.replaceChild(br, node);
+        range.setStartBefore(br);
+        range.collapse(true);
+      }
+      selection.removeAllRanges();
+      selection.addRange(range);
+      execCommand(block[1], block[2]);
       return;
     }
-    
-    if (MARKDOWN_PATTERNS.heading2.test(line)) {
-      execCommand('formatBlock', 'h2');
-      replaceText(node, lineStart, offset, '');
+    // Los atajos en línea se aplican al escribir el espacio tras el cierre ("**texto** "). Ese
+    // espacio pasa a ser un espacio duro fuera del elemento: con un espacio normal Chrome lo
+    // elimina al normalizar y el texto que se escribe después acaba dentro del <strong>/<em>.
+    const inline: [RegExp, string][] = [
+      [/\*\*([^*\s][^*]*)\*\*\s$/, 'strong'], [/(?<!\*)\*([^*\s][^*]*)\*\s$/, 'em'],
+      [/~~([^~\s][^~]*)~~\s$/, 's'], [/`([^`]+)`\s$/, 'code'],
+    ];
+    for (const [pattern, tag] of inline) {
+      const match = line.match(pattern);
+      if (!match) continue;
+      range.setStart(node, start + match.index!);
+      range.setEnd(node, offset);
+      range.deleteContents();
+      const element = document.createElement(tag);
+      element.textContent = match[1];
+      const space = document.createTextNode(' ');
+      const fragment = document.createDocumentFragment();
+      fragment.append(element, space);
+      range.insertNode(fragment);
+      range.setStart(space, 1);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
       return;
     }
-    
-    if (MARKDOWN_PATTERNS.heading3.test(line)) {
-      execCommand('formatBlock', 'h3');
-      replaceText(node, lineStart, offset, '');
-      return;
-    }
-
-    // Lists
-    if (MARKDOWN_PATTERNS.unorderedList.test(line)) {
-      execCommand('insertUnorderedList');
-      replaceText(node, lineStart, offset, '');
-      return;
-    }
-    
-    if (MARKDOWN_PATTERNS.orderedList.test(line)) {
-      execCommand('insertOrderedList');
-      replaceText(node, lineStart, offset, '');
-      return;
-    }
-
-    // Quote
-    if (MARKDOWN_PATTERNS.blockquote.test(line)) {
-      execCommand('formatBlock', 'blockquote');
-      replaceText(node, lineStart, offset, '');
-      return;
-    }
-
-    // Code block
-    if (MARKDOWN_PATTERNS.codeBlock.test(line)) {
-      execCommand('formatBlock', 'pre');
-      replaceText(node, lineStart, offset, '');
-      return;
-    }
-
-    // Horizontal rule
-    if (MARKDOWN_PATTERNS.horizontalRule.test(line)) {
-      execCommand('insertHorizontalRule');
-      replaceText(node, lineStart, offset, '');
-      return;
-    }
-
-    // Inline formatting
-    const boldMatch = line.match(MARKDOWN_PATTERNS.bold);
-    if (boldMatch) {
-      const startIdx = lineStart + line.lastIndexOf('**' + boldMatch[1] + '**');
-      replaceText(node, startIdx, offset, '');
-      execCommand('insertHTML', `<strong>${boldMatch[1]}</strong> `);
-      return;
-    }
-
-    const italicMatch = line.match(MARKDOWN_PATTERNS.italic);
-    if (italicMatch && !boldMatch) {
-      const startIdx = lineStart + line.lastIndexOf('*' + italicMatch[1] + '*');
-      replaceText(node, startIdx, offset, '');
-      execCommand('insertHTML', `<em>${italicMatch[1]}</em> `);
-      return;
-    }
-
-    const strikeMatch = line.match(MARKDOWN_PATTERNS.strikethrough);
-    if (strikeMatch) {
-      const startIdx = lineStart + line.lastIndexOf('~~' + strikeMatch[1] + '~~');
-      replaceText(node, startIdx, offset, '');
-      execCommand('insertHTML', `<s>${strikeMatch[1]}</s> `);
-      return;
-    }
-
-    const codeMatch = line.match(MARKDOWN_PATTERNS.inlineCode);
-    if (codeMatch) {
-      const startIdx = lineStart + line.lastIndexOf('`' + codeMatch[1] + '`');
-      replaceText(node, startIdx, offset, '');
-      execCommand('insertHTML', `<code>${codeMatch[1]}</code> `);
-      return;
-    }
-  }, [editorRef, execCommand, replaceText]);
-
+  }, [editorRef, execCommand, disabled]);
   return { handleMarkdownInput };
 }

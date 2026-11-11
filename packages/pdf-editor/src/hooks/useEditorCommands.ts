@@ -1,4 +1,5 @@
-import { useCallback, RefObject } from 'react';
+import { useCallback, useEffect, useRef, RefObject } from 'react';
+import { isSafeUrl } from '../utils/sanitize';
 import type { TextFormat } from '../types';
 
 /**
@@ -7,8 +8,28 @@ import type { TextFormat } from '../types';
 export function useEditorCommands(
   editorRef: RefObject<HTMLDivElement | null>,
   onFormatsChange: (formats: Set<TextFormat>) => void,
-  onContentChange?: () => void
+  onContentChange?: () => void,
+  disabled = false
 ) {
+  const savedRange = useRef<Range | null>(null);
+  const disabledRef = useRef(disabled);
+  disabledRef.current = disabled;
+  useEffect(() => {
+    const editor = editorRef.current;
+    const save = () => {
+      const selection = window.getSelection();
+      if (selection?.rangeCount) {
+        const range = selection.getRangeAt(0);
+        if (editor?.contains(range.commonAncestorContainer)) savedRange.current = range.cloneRange();
+      }
+    };
+    document.addEventListener('selectionchange', save);
+    editor?.addEventListener('blur', save);
+    return () => {
+      document.removeEventListener('selectionchange', save);
+      editor?.removeEventListener('blur', save);
+    };
+  }, [editorRef]);
   /**
    * Actualiza los formatos activos basándose en la selección actual
    */
@@ -33,8 +54,26 @@ export function useEditorCommands(
    * Ejecuta un comando del editor
    */
   const execCommand = useCallback((command: string, value?: string) => {
+    const editor = editorRef.current;
+    if (disabledRef.current || !editor) return;
+    if (command === 'createLink' && (!value || !isSafeUrl(value, 'link'))) return;
+    if (command === 'insertImage' && (!value || !isSafeUrl(value, 'image'))) return;
+    const selection = window.getSelection();
+    if (!selection) return;
+    const current = selection.rangeCount ? selection.getRangeAt(0) : null;
+    const range = current && editor.contains(current.commonAncestorContainer)
+      ? current.cloneRange()
+      : savedRange.current && editor.contains(savedRange.current.commonAncestorContainer)
+        ? savedRange.current.cloneRange() : document.createRange();
+    if (!editor.contains(range.commonAncestorContainer)) {
+      range.selectNodeContents(editor);
+      range.collapse(false);
+    }
+    editor.focus();
+    selection.removeAllRanges();
+    selection.addRange(range);
     document.execCommand(command, false, value);
-    editorRef.current?.focus();
+    if (selection.rangeCount) savedRange.current = selection.getRangeAt(0).cloneRange();
     updateActiveFormats();
     
     // Notificar cambio de contenido
@@ -54,8 +93,9 @@ export function useEditorCommands(
    * Inserta un enlace
    */
   const insertLink = useCallback(() => {
+    if (disabledRef.current) return;
     const url = prompt('Enter URL:');
-    if (url) {
+    if (url && isSafeUrl(url, 'link')) {
       execCommand('createLink', url);
     }
   }, [execCommand]);
@@ -64,8 +104,9 @@ export function useEditorCommands(
    * Inserta una imagen
    */
   const insertImage = useCallback(() => {
+    if (disabledRef.current) return;
     const url = prompt('Enter image URL:');
-    if (url) {
+    if (url && isSafeUrl(url, 'image')) {
       execCommand('insertImage', url);
     }
   }, [execCommand]);
@@ -74,12 +115,13 @@ export function useEditorCommands(
    * Inserta una imagen desde un archivo
    */
   const insertImageFromFile = useCallback(() => {
+    if (disabledRef.current) return;
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = 'image/*';
+    input.accept = 'image/png,image/jpeg,image/gif,image/webp';
     input.onchange = (e) => {
       const file = (e.target as HTMLInputElement).files?.[0];
-      if (file) {
+      if (file && ['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(file.type) && file.size <= 5 * 1024 * 1024) {
         const reader = new FileReader();
         reader.onload = () => {
           const dataUrl = reader.result as string;

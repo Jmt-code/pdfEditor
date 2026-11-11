@@ -3,6 +3,7 @@ import type { TextFormat, FormatOption } from '../types';
 import { FONT_OPTIONS, FONT_SIZE_OPTIONS, BLOCK_FORMAT_OPTIONS } from '../types';
 
 interface ToolbarProps {
+  disabled?: boolean;
   activeFormats: Set<TextFormat>;
   showHeaderFooter: boolean;
   fileName: string;
@@ -95,6 +96,7 @@ ColorPicker.displayName = 'ColorPicker';
 const Divider = () => <div className="toolbar-divider" aria-hidden="true" />;
 
 export const Toolbar = memo<ToolbarProps>(({
+  disabled = false,
   activeFormats,
   showHeaderFooter,
   fileName,
@@ -107,7 +109,7 @@ export const Toolbar = memo<ToolbarProps>(({
   onInsertImage,
 }) => {
   return (
-    <div className="editor-toolbar" role="toolbar" aria-label="Editor formatting tools">
+    <fieldset disabled={disabled} className="editor-toolbar" role="toolbar" aria-label="Editor formatting tools" style={{ margin: 0, minWidth: 0, border: 0 }}>
       {/* Format Section */}
       <div className="toolbar-section">
         <ToolbarSelect
@@ -304,7 +306,7 @@ export const Toolbar = memo<ToolbarProps>(({
           onClick={onExport}
         />
       </div>
-    </div>
+    </fieldset>
   );
 });
 

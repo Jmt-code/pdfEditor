@@ -467,6 +467,9 @@
 
 .editor-content img {
   max-width: 100%;
+  /* Nunca más alta que el área de contenido de una página (A4 con cabecera y pie) */
+  max-height: 908px;
+  object-fit: contain;
   height: auto;
   border-radius: 4px;
 }

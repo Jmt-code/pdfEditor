@@ -19,9 +19,10 @@ export interface PdfEditorConfig {
   readOnly?: boolean;
   /** Mostrar panel de header/footer por defecto */
   showHeaderFooterPanel?: boolean;
-  /** Ancho del documento en mm (default: 210 para A4) */
+  /** @deprecated ignored; the document is always A4 */
   documentWidth?: number;
   /** Alto mínimo del documento en mm (default: 297 para A4) */
+  /** @deprecated ignored; the document is always A4 */
   documentMinHeight?: number;
 }
 
