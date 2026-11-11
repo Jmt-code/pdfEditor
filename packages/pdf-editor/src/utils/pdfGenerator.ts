@@ -111,6 +111,7 @@ async function renderLayout(
       await pdf.addImage(atom.src, toX(atom.x), y, {
         width: atom.width * scale * PX_TO_PT,
         height: atom.height * scale * PX_TO_PT,
+        autoPageBreak: false,
       });
     } catch (error) {
       warnings.push(`Image skipped (${atom.src.slice(0, 80)}): ${error instanceof Error ? error.message : String(error)}`);
@@ -152,7 +153,8 @@ function drawRun(
   pdf.setPage(pageIndexPlace.page);
 
   const size = run.sizePx * PX_TO_PT;
-  const options = { size, font: run.font, style: run.style, color: run.color };
+  // La paginación ya está decidida: el creador no debe saltar de página por su cuenta
+  const options = { size, font: run.font, style: run.style, color: run.color, autoPageBreak: false };
   const naturalWidth = pdf.getTextWidth(run.text, options);
   const targetWidth = run.width * PX_TO_PT;
 
@@ -188,7 +190,10 @@ export async function parseHtmlToPdf(
 
   // La primera página puede tener menos espacio: se pagina con un desplazamiento virtual
   const offset = pageHeightPx - firstPageHeightPx;
-  const shifted = { atoms: layout.atoms.map(a => ({ ...a, y: a.y + offset })) };
+  const shifted = {
+    atoms: layout.atoms.map(a => ({ ...a, y: a.y + offset })),
+    fills: layout.fills.map(f => ({ ...f, y: f.y + offset })),
+  };
   const breaks = paginate(shifted, pageHeightPx).map((b, i) => (i === 0 ? 0 : b - offset));
 
   const firstPage = pdf.getCurrentPageIndex();
@@ -200,13 +205,29 @@ export async function parseHtmlToPdf(
     pageHeightPx,
   });
 
+  // Final del contenido en la última página: texto, imágenes (ya reducidas a una página como
+  // máximo, igual que al dibujarlas) y fondos/bordes (padding de <pre>, citas...)
   const lastIndex = breaks.length - 1;
-  const lastBottom = layout.atoms
-    .filter(a => pageIndexFor(breaks, a.y) === lastIndex)
-    .reduce((max, a) => Math.max(max, a.y + a.height), breaks[lastIndex]);
+  const lastStart = breaks[lastIndex];
+  const bottoms = [
+    ...layout.atoms.map(a => ({ y: a.y, bottom: a.y + (a.kind === 'image' ? Math.min(a.height, pageHeightPx) : a.height) })),
+    ...layout.fills.map(f => ({ y: f.y, bottom: f.y + f.height })),
+  ];
+  const lastBottom = bottoms
+    .filter(b => b.bottom > lastStart && pageIndexFor(breaks, Math.max(b.y, lastStart)) === lastIndex)
+    .reduce((max, b) => Math.max(max, b.bottom), lastStart);
   const origin = lastIndex === 0 ? startY : area.top;
+  const endY = origin + (lastBottom - lastStart) * PX_TO_PT;
+
+  // Cursores: las páginas intermedias quedan llenas; la última, bajo el HTML, para que
+  // addParagraph y compañía continúen detrás del contenido
+  for (let k = 0; k < lastIndex; k++) {
+    pdf.setPage(firstPage + k);
+    pdf.setCursor(area.bottom);
+  }
   pdf.setPage(firstPage + lastIndex);
-  return origin + (lastBottom - breaks[lastIndex]) * PX_TO_PT;
+  pdf.setCursor(endY);
+  return endY;
 }
 
 /**

@@ -13,7 +13,7 @@ export interface TextOptions {
   /** Hex color, `#rrggbb` or `#rgb`. Default black. */
   color?: string;
   align?: TextAlign;
-  /** Left/right margin used for alignment and for resetting X after an automatic page break. Default 40. */
+  /** Symmetric left/right margin used for center/right alignment. Default: the configured margins. */
   marginX?: number;
   underline?: boolean;
   strikethrough?: boolean;
@@ -21,15 +21,32 @@ export interface TextOptions {
   horizontalScale?: number;
   /** Turns the drawn text into a clickable link. */
   link?: string;
+  /** Overrides the document's autoPageBreak for this call (addText only). */
+  autoPageBreak?: boolean;
+}
+
+/** An image loaded into a document with loadImage(). */
+export interface PdfImage {
+  id: string;
+  pixelWidth: number;
+  pixelHeight: number;
 }
 
 export interface ImageOptions {
+  /** Overrides the document's autoPageBreak for this call. */
+  autoPageBreak?: boolean;
   /** Display width in points. */
   width: number;
   /** Display height in points. */
   height: number;
   /** @deprecated Ignored: the format is detected from the data. */
   format?: string;
+  /**
+   * Scale the image down (keeping its aspect ratio, never enlarging) so it fits in the printable
+   * height and in the width left up to the right margin. The resulting bottom is reflected in
+   * `cursorY`. Default false: the image is drawn exactly at the given size.
+   */
+  fit?: boolean;
 }
 
 export interface LineOptions {
@@ -45,6 +62,7 @@ export interface RectOptions {
   lineWidth?: number;
 }
 
+/** Default header/footer text is aligned between the left and right page margins (like Word). */
 export interface DefaultHeaderConfig {
   text?: string;
   align?: TextAlign;
@@ -60,7 +78,52 @@ export interface DefaultFooterConfig {
   color?: string;
 }
 
+export interface Margins {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+export type PageSizeName = 'A4' | 'A5' | 'Letter' | 'Legal';
+
+/** Page sizes in points (portrait). */
+export const PAGE_SIZES: Record<PageSizeName, { width: number; height: number }> = {
+  A4: { width: 595.28, height: 841.89 },
+  A5: { width: 419.53, height: 595.28 },
+  Letter: { width: 612, height: 792 },
+  Legal: { width: 612, height: 1008 },
+};
+
+export interface ParagraphOptions extends Omit<TextOptions, 'align' | 'marginX'> {
+  /** Left edge in points. Default: left margin. */
+  x?: number;
+  /** Top of the paragraph in points. Default: the current cursor. */
+  y?: number;
+  /** Maximum line width in points. Default: from x to the right margin. */
+  maxWidth?: number;
+  /** Line height as a multiple of the font size. Default 1.2. */
+  lineHeight?: number;
+  align?: TextAlign | 'justify';
+  /** Extra space after the paragraph, in points. Default 0. */
+  spacingAfter?: number;
+}
+
+export interface ParagraphResult {
+  /** Y just below the paragraph (where the cursor is left). */
+  y: number;
+  lines: number;
+  /** Pages added while drawing the paragraph. */
+  pagesAdded: number;
+}
+
 export interface PdfConfig {
+  /** Page size. Default 'A4'. */
+  pageSize?: PageSizeName | { width: number; height: number };
+  /** Default 'portrait'. */
+  orientation?: 'portrait' | 'landscape';
+  /** Page margins in points. Default { top: 40, right: 40, bottom: 20, left: 40 }. */
+  margins?: Partial<Margins>;
   headerHeight?: number;
   footerHeight?: number;
   /** Called for every page when the PDF is built. Must draw synchronously (no addImage). */
@@ -83,6 +146,8 @@ interface PageData {
   fonts: Set<string>;
   images: Set<string>;
   links: LinkAnnotation[];
+  /** Saved cursor while another page is current. */
+  cursor: number;
 }
 
 interface ImageEntry {
@@ -206,7 +271,9 @@ export function readJpegInfo(bytes: Uint8Array): { width: number; height: number
  * Coordinates use a top-left origin in points (A4: 595.28 × 841.89); text Y is the baseline.
  */
 export class PdfCreator {
+  /** @deprecated A4 width only. Use `getPageSize()`: pages can be other sizes/orientations. */
   static readonly PAGE_WIDTH = 595.28;
+  /** @deprecated A4 height only. Use `getPageSize()`: pages can be other sizes/orientations. */
   static readonly PAGE_HEIGHT = 841.89;
 
   private config: PdfConfig;
@@ -215,36 +282,105 @@ export class PdfCreator {
   private images = new Map<string, ImageEntry>();
   private imageKeysBySource = new Map<string, string>();
   /** When set, drawing goes here instead of the page (header/footer pass during build). */
-  private overlay: { content: string[]; links: LinkAnnotation[] } | null = null;
+  private overlay: { content: string[]; links: LinkAnnotation[]; images: Set<string> } | null = null;
 
-  private readonly PAGE_WIDTH = PdfCreator.PAGE_WIDTH;
-  private readonly PAGE_HEIGHT = PdfCreator.PAGE_HEIGHT;
+  private readonly PAGE_WIDTH: number;
+  private readonly PAGE_HEIGHT: number;
   private readonly MAX_HEADER_HEIGHT = 200;
   private readonly MAX_FOOTER_HEIGHT = 200;
 
   private headerHeight: number;
   private footerHeight: number;
+  private margins: Margins;
+  /** Y (points from top) where the next flowing element goes on the current page. */
+  private cursor = 0;
 
   constructor(config: PdfConfig = {}) {
-    this.config = config;
+    // Copy: never mutate the caller's config object
+    this.config = { ...config };
+    let base: { width: number; height: number };
+    if (typeof config.pageSize === 'object' && config.pageSize !== null) {
+      base = config.pageSize;
+    } else {
+      const name = String(config.pageSize ?? 'A4').toLowerCase();
+      const key = (Object.keys(PAGE_SIZES) as PageSizeName[]).find(k => k.toLowerCase() === name);
+      if (!key) {
+        throw new RangeError(
+          `Unknown pageSize "${config.pageSize}" (use ${Object.keys(PAGE_SIZES).join(', ')} or { width, height })`
+        );
+      }
+      base = PAGE_SIZES[key];
+    }
+    const valid = (n: unknown) => typeof n === 'number' && Number.isFinite(n) && n > 0;
+    if (!valid(base?.width) || !valid(base?.height)) {
+      throw new RangeError('pageSize width and height must be positive finite numbers (points)');
+    }
+    const [w, h] = [base.width, base.height];
+    // An explicit orientation puts the long side horizontal ('landscape') or vertical
+    // ('portrait'); without it, custom sizes are kept as given and named sizes are portrait.
+    const orientation = config.orientation ?? (typeof config.pageSize === 'object' ? undefined : 'portrait');
+    this.PAGE_WIDTH = orientation === 'landscape' ? Math.max(w, h) : orientation === 'portrait' ? Math.min(w, h) : w;
+    this.PAGE_HEIGHT = orientation === 'landscape' ? Math.min(w, h) : orientation === 'portrait' ? Math.max(w, h) : h;
     this.headerHeight = Math.max(0, Math.min(config.headerHeight || 0, this.MAX_HEADER_HEIGHT));
     this.footerHeight = Math.max(0, Math.min(config.footerHeight || 0, this.MAX_FOOTER_HEIGHT));
+    const m = config.margins ?? {};
+    const clamp = (v: number | undefined, d: number) => Math.max(0, Number.isFinite(v) ? (v as number) : d);
+    this.margins = {
+      top: clamp(m.top, 40),
+      right: clamp(m.right, 40),
+      bottom: clamp(m.bottom, 20),
+      left: clamp(m.left, 40),
+    };
+    const area = this.getContentArea();
+    if (area.bottom - area.top < 1 || area.right - area.left < 1) {
+      throw new RangeError(
+        'Margins, headerHeight and footerHeight leave no printable area on a ' +
+          `${fmt(this.PAGE_WIDTH)}×${fmt(this.PAGE_HEIGHT)} page`
+      );
+    }
     this.addPage();
   }
 
   // ---------------------------------------------------------------- pages
 
   public addPage(): void {
-    this.pages.push({ content: [], fonts: new Set(), images: new Set(), links: [] });
-    this.currentPageIndex = this.pages.length - 1;
+    this.assertNotInCallback('addPage');
+    this.insertPage(this.pages.length);
   }
 
-  /** Makes page `index` (0-based) the target of subsequent drawing calls. */
+  private assertNotInCallback(method: string): void {
+    if (this.overlay) throw new Error(`${method}() cannot be used inside onHeader/onFooter callbacks`);
+  }
+
+  /** Creates an empty page at `index` and makes it current (saving the current page's cursor). */
+  private insertPage(index: number): void {
+    if (this.page) this.page.cursor = this.cursor;
+    const top = this.getContentArea().top;
+    this.pages.splice(index, 0, { content: [], fonts: new Set(), images: new Set(), links: [], cursor: top });
+    this.currentPageIndex = index;
+    this.cursor = top;
+  }
+
+  /** Makes page `index` (0-based) the target of subsequent drawing calls (with its own cursor). */
   public setPage(index: number): void {
+    this.assertNotInCallback('setPage');
     if (index < 0 || index >= this.pages.length) {
       throw new RangeError(`Page index ${index} out of range (0..${this.pages.length - 1})`);
     }
-    this.currentPageIndex = index;
+    if (index !== this.currentPageIndex) {
+      this.page.cursor = this.cursor;
+      this.currentPageIndex = index;
+      this.cursor = this.page.cursor;
+    }
+  }
+
+  /** Enables/disables automatic page breaks (same as the `autoPageBreak` config option). */
+  public setAutoPageBreak(enabled: boolean): void {
+    this.config.autoPageBreak = enabled;
+  }
+
+  public isAutoPageBreak(): boolean {
+    return this.config.autoPageBreak !== false;
   }
 
   public getPageCount(): number {
@@ -259,12 +395,67 @@ export class PdfCreator {
     return { width: this.PAGE_WIDTH, height: this.PAGE_HEIGHT };
   }
 
-  /** Top and bottom Y (points from top) of the printable area, excluding header/footer. */
-  public getContentArea(topMargin = 40, bottomMargin = 20): { top: number; bottom: number } {
+  public getMargins(): Margins {
+    return { ...this.margins };
+  }
+
+  /**
+   * Top and bottom Y (points from top) of the printable area, excluding header/footer and
+   * margins. The optional arguments override the configured top/bottom margins.
+   */
+  public getContentArea(
+    topMargin = this.margins.top,
+    bottomMargin = this.margins.bottom
+  ): { top: number; bottom: number; left: number; right: number } {
     return {
       top: this.headerHeight + topMargin,
       bottom: this.PAGE_HEIGHT - this.footerHeight - bottomMargin,
+      left: this.margins.left,
+      right: this.PAGE_WIDTH - this.margins.right,
     };
+  }
+
+  /** Y (points from top) where the next flowing element (paragraph, image...) will be placed. */
+  public get cursorY(): number {
+    return this.cursor;
+  }
+
+  /** Moves the cursor to `y` on the current page. */
+  public setCursor(y: number): void {
+    this.cursor = y;
+  }
+
+  /** Moves the cursor down by `points`, starting a new page if it passes the bottom margin. */
+  public moveDown(points: number): void {
+    this.cursor += points;
+    if (this.autoPageBreak && this.cursor > this.getContentArea().bottom) this.insertPage(this.currentPageIndex + 1);
+  }
+
+  /**
+   * Automatic page break rule shared by every flowing element: an element extending `above`
+   * points over and `below` points under its reference Y moves to the top of a new page when
+   * it crosses the bottom margin, unless it is already at the top (an element taller than the
+   * printable area would otherwise open pages forever).
+   * Callers must continue from the returned Y (or use addParagraph / cursorY): positions
+   * computed for a previous page are not translated.
+   */
+  private placeFlowing(
+    y: number,
+    above: number,
+    below: number,
+    allowBreak = true
+  ): { y: number; pageBreak: boolean } {
+    if (!allowBreak || !this.autoPageBreak) return { y, pageBreak: false };
+    const { top, bottom } = this.getContentArea();
+    if (y + below > bottom && y - above > top + 0.01) {
+      // Continue on a new page inserted right after the current one (also after setPage())
+      this.insertPage(this.currentPageIndex + 1);
+      const newY = this.getContentArea().top + above;
+      // The element now opens the page: flowing content continues below it
+      this.cursor = newY + below;
+      return { y: newY, pageBreak: true };
+    }
+    return { y, pageBreak: false };
   }
 
   private get page(): PageData {
@@ -314,6 +505,12 @@ export class PdfCreator {
 
   // ---------------------------------------------------------------- drawing
 
+  /**
+   * Draws one line of text with its baseline at y. If it crosses the bottom margin (and
+   * automatic page breaks are on) it moves to the top of a new page, keeping x; continue from
+   * the returned `y` (and `x`, the end of the text). It does not move the flowing cursor,
+   * except after an automatic page break, which leaves the cursor just below the moved line.
+   */
   public addText(
     text: string,
     x: number,
@@ -321,56 +518,204 @@ export class PdfCreator {
     options: TextOptions = {}
   ): { y: number; pageBreak: boolean; x: number } {
     const {
-      size = 12, color = '#000000', align = 'left', marginX = 40,
-      underline = false, strikethrough = false, horizontalScale = 100, link,
+      size = 12, color = '#000000', align = 'left',
+      horizontalScale = 100,
     } = options;
+    // marginX (legacy) = symmetric margins; otherwise the configured left/right margins
+    const left = options.marginX ?? this.margins.left;
+    const right = this.PAGE_WIDTH - (options.marginX ?? this.margins.right);
 
-    let pageBreak = false;
-    if (this.autoPageBreak && y + size * 0.25 > this.getContentArea().bottom) {
-      this.addPage();
-      y = this.getContentArea().top;
-      x = marginX;
-      pageBreak = true;
-    }
-
-    const fontKey = this.resolveFontKey(options.font, options.style);
-    const resource = this.fontResource(fontKey);
-    this.page.fonts.add(resource);
+    const placed = this.placeFlowing(y, size * 0.8, size * 0.25, options.autoPageBreak !== false);
+    const pageBreak = placed.pageBreak;
+    y = placed.y;
 
     const textWidth = this.getTextWidth(text, options);
     let drawX = x;
     if (align === 'center') {
-      drawX = marginX + (this.PAGE_WIDTH - marginX * 2 - textWidth) / 2;
+      drawX = left + (right - left - textWidth) / 2;
     } else if (align === 'right') {
-      drawX = this.PAGE_WIDTH - marginX - textWidth;
+      drawX = right - textWidth;
     }
 
-    const pdfY = this.PAGE_HEIGHT - y;
-    // Tz forma parte del estado gráfico y no se reinicia con ET: se emite siempre
-    const scaleOp = `${fmt(horizontalScale)} Tz `;
+    const width = this.drawRun(text, drawX, y, { ...options, size, color, horizontalScale }, 0, textWidth);
+    return { y, pageBreak, x: drawX + width };
+  }
+
+  /**
+   * Low-level text drawing: one text object at (x, baseline), no pagination. `wordSpacing` is
+   * the extra space (points) added to every space character (used to justify).
+   * Returns the drawn width.
+   */
+  private drawRun(
+    text: string,
+    x: number,
+    baseline: number,
+    options: TextOptions,
+    wordSpacing = 0,
+    naturalWidth = this.getTextWidth(text, options)
+  ): number {
+    const size = options.size ?? 12;
+    const color = options.color ?? '#000000';
+    const scale = options.horizontalScale ?? 100;
+    const resource = this.fontResource(this.resolveFontKey(options.font, options.style));
+    this.page.fonts.add(resource);
+    const bytes = encodeWinAnsi(text);
+    // Tz and Tw are part of the graphics state and survive ET: always set both.
+    // Tw is in unscaled text space, so it is divided by the horizontal scaling.
     this.emit(
-      `BT /${resource} ${fmt(size)} Tf ${scaleOp}${colorOp(color, 'rg')} ` +
-      `${fmt(drawX)} ${fmt(pdfY)} Td (${escapePdfString(encodeWinAnsi(text))}) Tj ET`
+      `BT /${resource} ${fmt(size)} Tf ${fmt(scale)} Tz ${fmt(wordSpacing / (scale / 100))} Tw ` +
+      `${colorOp(color, 'rg')} ${fmt(x)} ${fmt(this.PAGE_HEIGHT - baseline)} Td (${escapePdfString(bytes)}) Tj ET`
     );
+    const spaces = bytes.split(' ').length - 1;
+    const width = naturalWidth + wordSpacing * spaces;
+    this.decorate(x, baseline, width, { ...options, size, color });
+    return width;
+  }
 
-    if (underline || strikethrough) {
-      const metrics = FONT_METRICS[BASE_FONTS[fontKey]];
+  /** Underline, strikethrough and link area for a run of text whose baseline is `baseline`. */
+  private decorate(x: number, baseline: number, width: number, options: TextOptions): void {
+    const size = options.size ?? 12;
+    const color = options.color ?? '#000000';
+    if (options.underline || options.strikethrough) {
+      const metrics = FONT_METRICS[BASE_FONTS[this.resolveFontKey(options.font, options.style)]];
       const thickness = Math.max(0.5, (metrics.underlineThickness * size) / 1000);
-      if (underline) {
-        const uy = y - (metrics.underlinePosition * size) / 1000;
-        this.addLine(drawX, uy, drawX + textWidth, uy, { color, width: thickness });
+      if (options.underline) {
+        const uy = baseline - (metrics.underlinePosition * size) / 1000;
+        this.addLine(x, uy, x + width, uy, { color, width: thickness });
       }
-      if (strikethrough) {
-        const sy = y - size * 0.28;
-        this.addLine(drawX, sy, drawX + textWidth, sy, { color, width: thickness });
+      if (options.strikethrough) {
+        const sy = baseline - size * 0.28;
+        this.addLine(x, sy, x + width, sy, { color, width: thickness });
       }
     }
+    if (options.link) this.addLink(x, baseline - size * 0.8, width, size, options.link);
+  }
 
-    if (link) {
-      this.addLink(drawX, y - size * 0.8, textWidth, size, link);
+  /**
+   * Splits `text` into lines that fit in `maxWidth` points. Respects `\n`, breaks between words
+   * and, for words longer than a line, between characters.
+   */
+  public wrapText(text: string, maxWidth: number, options: TextOptions = {}): string[] {
+    return this.wrapLines(text, maxWidth, options).map(l => l.text);
+  }
+
+  /**
+   * Like wrapText, marking the last line of each source line (before `\n`) and returning each
+   * line's width. Leading indentation (when it fits with the first word) and repeated spaces are
+   * kept (tabs = 4 spaces); spaces at an automatic wrap point are dropped.
+   */
+  private wrapLines(text: string, maxWidth: number, options: TextOptions): { text: string; end: boolean; width: number }[] {
+    const lines: { text: string; end: boolean; width: number }[] = [];
+    const width = (s: string) => this.getTextWidth(s, options);
+    for (const rawLine of text.replace(/\r\n?/g, '\n').split('\n')) {
+      const tokens = rawLine.replace(/\t/g, '    ').split(/( +)/).filter(t => t !== '');
+      let current = '';
+      let currentWidth = 0;
+      let pendingSpace = '';
+      let wrapped = false; // an automatic wrap happened in this source line
+      for (let token of tokens) {
+        if (token[0] === ' ') {
+          pendingSpace += token;
+          continue;
+        }
+        // Leading indentation is kept only at the start of the source line
+        const gap = current || !wrapped ? pendingSpace : '';
+        pendingSpace = '';
+        let tokenWidth = width(token);
+        const gapWidth = gap ? width(gap) : 0;
+        if (currentWidth + gapWidth + tokenWidth <= maxWidth) {
+          current += gap + token;
+          currentWidth += gapWidth + tokenWidth;
+          continue;
+        }
+        if (current) {
+          lines.push({ text: current, end: false, width: currentWidth });
+          wrapped = true;
+        }
+        current = '';
+        currentWidth = 0;
+        // Word longer than a line: split it by characters, summing widths (linear)
+        while (tokenWidth > maxWidth && token.length > 1) {
+          let cutAt = 0;
+          let acc = 0;
+          for (const ch of token) {
+            const w = width(ch);
+            if (cutAt > 0 && acc + w > maxWidth) break;
+            acc += w;
+            cutAt += ch.length;
+          }
+          lines.push({ text: token.slice(0, cutAt), end: false, width: acc });
+          wrapped = true;
+          token = token.slice(cutAt);
+          tokenWidth -= acc; // widths are additive per character: no re-measuring
+        }
+        current = token;
+        currentWidth = tokenWidth;
+      }
+      if (current) {
+        lines.push({ text: current, end: true, width: currentWidth });
+      } else if (wrapped) {
+        // The last piece of a split word consumed everything: it is the line end
+        lines[lines.length - 1].end = true;
+      } else {
+        lines.push({ text: '', end: true, width: 0 });
+      }
+    }
+    return lines;
+  }
+
+  /**
+   * Draws a block of text with automatic line wrapping and page breaks, starting at the cursor
+   * (or `options.y`, the top of the block). Leaves the cursor below the paragraph.
+   */
+  public addParagraph(text: string, options: ParagraphOptions = {}): ParagraphResult {
+    const {
+      x: optX, y: optY, maxWidth: optMaxWidth, lineHeight = 1.2, align = 'left', spacingAfter = 0,
+      ...rest
+    } = options;
+    const size = rest.size ?? 12;
+    const textOptions: TextOptions = { ...rest, size };
+    const area = this.getContentArea();
+    const x = optX ?? area.left;
+    const maxWidth = Math.max(1, optMaxWidth ?? area.right - x);
+    const lineAdvance = size * lineHeight;
+    const ascent = size * 0.8;
+
+    const lines = this.wrapLines(text, maxWidth, textOptions);
+    const startPages = this.pages.length;
+    let top = optY ?? this.cursor;
+
+    for (const line of lines) {
+      if (!line.text) {
+        // Blank lines take vertical space but never start a page by themselves
+        top += lineAdvance;
+        continue;
+      }
+      // Same break rule as addText (no break without autoPageBreak or inside header/footer)
+      const baseline = this.placeFlowing(top + ascent, ascent, size * 0.25, rest.autoPageBreak !== false).y;
+      top = baseline - ascent;
+      const w = line.width;
+      const indent = /^ */.exec(line.text)![0];
+      const body = line.text.slice(indent.length);
+      const spaces = body.split(' ').length - 1;
+      if (align === 'justify' && !line.end && spaces > 0) {
+        // Only the gaps between words stretch; the indentation keeps its natural width
+        const indentWidth = indent ? this.getTextWidth(indent, textOptions) : 0;
+        const bodyWidth = w - indentWidth;
+        this.drawRun(body, x + indentWidth, baseline, textOptions, (maxWidth - w) / spaces, bodyWidth);
+      } else {
+        const dx = align === 'center' ? (maxWidth - w) / 2 : align === 'right' ? maxWidth - w : 0;
+        this.drawRun(line.text, x + dx, baseline, textOptions, 0, w);
+      }
+      top += lineAdvance;
     }
 
-    return { y, pageBreak, x: drawX + textWidth };
+    const endY = top + spacingAfter;
+    const pagesAdded = this.pages.length - startPages;
+    // A paragraph placed higher up with an explicit y (e.g. a second column) must not move the
+    // cursor back. (Header/footer callbacks run with a temporary cursor restored by toBytes.)
+    this.cursor = optY === undefined || pagesAdded > 0 ? endY : Math.max(this.cursor, endY);
+    return { y: endY, lines: lines.length, pagesAdded };
   }
 
   public addLine(x1: number, y1: number, x2: number, y2: number, options: LineOptions = {}): void {
@@ -381,7 +726,7 @@ export class PdfCreator {
     );
   }
 
-  /** Rectangle with its top-left corner at (x, y). */
+  /** Rectangle with its top-left corner at (x, y). Drawn exactly where given (never breaks pages). */
   public addRect(x: number, y: number, width: number, height: number, options: RectOptions = {}): void {
     const { fill, stroke, lineWidth = 1 } = options;
     if (!fill && !stroke) return;
@@ -462,31 +807,81 @@ export class PdfCreator {
   }
 
   /**
-   * Draws an image with its top-left corner at (x, y), scaled to options.width × options.height points.
-   * Accepts data URLs (any browser-decodable format) or http(s)/blob URLs.
-   * Returns the Y actually used (it changes when an automatic page break happens).
+   * Loads (and if needed converts to JPEG) an image once, so it can be drawn synchronously any
+   * number of times with drawImage(). Accepts data URLs or http(s)/blob URLs.
    */
-  public async addImage(imageData: string, x: number, y: number, options: ImageOptions): Promise<number> {
-    // Fix the target page before awaiting, so concurrent page changes cannot move the image.
-    if (this.autoPageBreak && y + options.height > this.getContentArea().bottom) {
-      this.addPage();
-      y = this.getContentArea().top;
-    }
-    const pageIndex = this.currentPageIndex;
-
-    let key = this.imageKeysBySource.get(imageData);
+  public async loadImage(source: string): Promise<PdfImage> {
+    let key = this.imageKeysBySource.get(source);
     if (!key) {
-      const entry = await this.toJpeg(imageData);
-      key = `Im${this.images.size + 1}`;
-      this.images.set(key, entry);
-      this.imageKeysBySource.set(imageData, key);
+      const entry = await this.toJpeg(source);
+      key = this.imageKeysBySource.get(source); // another call may have loaded it meanwhile
+      if (!key) {
+        key = `Im${this.images.size + 1}`;
+        this.images.set(key, entry);
+        this.imageKeysBySource.set(source, key);
+      }
     }
+    const entry = this.images.get(key)!;
+    return { id: key, pixelWidth: entry.pixelWidth, pixelHeight: entry.pixelHeight };
+  }
 
-    const page = this.pages[pageIndex];
-    page.images.add(key);
-    const pdfY = this.PAGE_HEIGHT - y - options.height;
-    page.content.push(`q ${fmt(options.width)} 0 0 ${fmt(options.height)} ${fmt(x)} ${fmt(pdfY)} cm /${key} Do Q`);
-    return y;
+  /** Display size after applying `fit`. */
+  private imageSize(x: number, options: ImageOptions): { width: number; height: number } {
+    let { width, height } = options;
+    if (options.fit && width > 0 && height > 0) {
+      // Reduce (never enlarge) to the printable height and to the room left to the right margin
+      const area = this.getContentArea();
+      let scale = Math.min(1, (area.bottom - area.top) / height);
+      if (area.right - x > 0) scale = Math.min(scale, (area.right - x) / width);
+      width *= scale;
+      height *= scale;
+    }
+    return { width, height };
+  }
+
+  /**
+   * Resolves the final page and position of an image (page break if needed). With
+   * `y === 'cursor'` the image flows: it is placed at the cursor, which then moves below it.
+   */
+  private reserveImage(x: number, y: number | 'cursor', options: ImageOptions) {
+    const { width, height } = this.imageSize(x, options);
+    const flowing = y === 'cursor';
+    const placed = this.placeFlowing(flowing ? this.cursor : y, 0, height, options.autoPageBreak !== false);
+    if (flowing) this.cursor = placed.y + height;
+    return { page: this.page, x, y: placed.y, width, height };
+  }
+
+  private paintImage(page: PageData, image: PdfImage, x: number, y: number, width: number, height: number): void {
+    if (!this.images.has(image.id)) throw new Error(`Image ${image.id} does not belong to this document`);
+    (this.overlay && page === this.page ? this.overlay.images : page.images).add(image.id);
+    const op = `q ${fmt(width)} 0 0 ${fmt(height)} ${fmt(x)} ${fmt(this.PAGE_HEIGHT - y - height)} cm /${image.id} Do Q`;
+    if (this.overlay && page === this.page) this.overlay.content.push(op);
+    else page.content.push(op);
+  }
+
+  /**
+   * Draws a loaded image (see loadImage) with its top-left corner at (x, y), scaled to
+   * options.width × options.height points. Synchronous. Pass `'cursor'` as y to place it at the
+   * cursor and move the cursor below it. Returns the Y actually used.
+   */
+  public drawImage(image: PdfImage, x: number, y: number | 'cursor', options: ImageOptions): number {
+    const r = this.reserveImage(x, y, options);
+    this.paintImage(r.page, image, r.x, r.y, r.width, r.height);
+    return r.y;
+  }
+
+  /**
+   * Loads and draws an image in one call. Its page and position (including any automatic page
+   * break) are decided when addImage is called, so concurrent calls keep their order; the image
+   * is painted when it has loaded. If loading fails the promise rejects and the reserved space
+   * (and page break, if one was needed) stays. Pass `'cursor'` as y to flow at the cursor.
+   * Returns the Y actually used.
+   */
+  public async addImage(imageData: string, x: number, y: number | 'cursor', options: ImageOptions): Promise<number> {
+    const r = this.reserveImage(x, y, options);
+    const image = await this.loadImage(imageData);
+    this.paintImage(r.page, image, r.x, r.y, r.width, r.height);
+    return r.y;
   }
 
   // ---------------------------------------------------------------- header / footer
@@ -499,7 +894,7 @@ export class PdfCreator {
     } else if (defaultHeader?.text) {
       const { text, align = 'center', color = '#000000' } = defaultHeader;
       const baseline = this.headerHeight > 0 ? this.headerHeight / 2 + 4 : 24;
-      this.addText(text, 40, baseline, { size: 10, align, color });
+      this.addText(text, this.margins.left, baseline, { size: 10, align, color });
     }
 
     if (onFooter) {
@@ -516,7 +911,7 @@ export class PdfCreator {
       }
       if (footerText.trim()) {
         const baseline = this.PAGE_HEIGHT - (this.footerHeight > 0 ? this.footerHeight / 2 - 4 : 20);
-        this.addText(footerText, 40, baseline, { size: 10, align, color });
+        this.addText(footerText, this.margins.left, baseline, { size: 10, align, color });
       }
     }
   }
@@ -531,12 +926,15 @@ export class PdfCreator {
     const total = this.pages.length;
 
     // 1. Header/footer drawn into per-build overlays (pages are not mutated).
-    const overlays: { content: string[]; links: LinkAnnotation[]; fonts: Set<string> }[] = [];
+    const overlays: { content: string[]; links: LinkAnnotation[]; images: Set<string>; fonts: Set<string> }[] = [];
     const savedPage = this.currentPageIndex;
+    const savedCursor = this.cursor;
     for (let i = 0; i < total; i++) {
       this.currentPageIndex = i;
+      // Callbacks get a throw-away cursor at the top of the page; the body cursor is restored
+      this.cursor = 0;
       const fontsBefore = new Set(this.pages[i].fonts);
-      this.overlay = { content: [], links: [] };
+      this.overlay = { content: [], links: [], images: new Set() };
       try {
         this.drawHeaderFooter(i + 1, total);
       } finally {
@@ -549,6 +947,7 @@ export class PdfCreator {
       }
     }
     this.currentPageIndex = savedPage;
+    this.cursor = savedCursor;
 
     // 2. Object numbering (local to this build).
     let nextId = 1;
@@ -610,7 +1009,7 @@ export class PdfCreator {
       const ov = overlays[i];
       const ids = pageIds[i];
       const fontRes = [...ov.fonts].sort().map(f => `/${f} ${fontIds.get(f)} 0 R`).join(' ');
-      const imgRes = [...page.images].map(k => `/${k} ${imageIds.get(k)} 0 R`).join(' ');
+      const imgRes = [...new Set([...page.images, ...ov.images])].map(k => `/${k} ${imageIds.get(k)} 0 R`).join(' ');
       const resources =
         `<< /ProcSet [/PDF /Text /ImageB /ImageC]` +
         (fontRes ? ` /Font << ${fontRes} >>` : '') +
