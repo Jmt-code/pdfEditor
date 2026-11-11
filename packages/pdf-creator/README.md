@@ -7,11 +7,15 @@ A lightweight, dependency-free TypeScript library for generating PDF files in th
 
 ## Features
 
-- **No External Dependencies**: Generates PDFs using raw PDF 1.7 specification
-- **Text Support**: Add text with customizable fonts, sizes, colors, and alignment
-- **Image Support**: Embed JPEG and PNG images
-- **Pagination**: Create multi-page documents
-- **Headers & Footers**: Powerful configuration for custom or default headers and footers
+- **No external dependencies**: writes the PDF 1.7 format directly, with exact byte offsets.
+- **Text**: the 14 standard PDF fonts (Helvetica, Times, Courier, each in normal, bold, italic and bold italic) with WinAnsi encoding. Accents, `ñ`, `€`, `“ ”` and `—` render correctly. Characters outside WinAnsi become `?`.
+- **Exact measurement**: `getTextWidth()` uses the official Adobe font metrics, so it needs no canvas and gives the same result in Node.
+- **Text decorations**: underline, strikethrough, horizontal scaling and clickable links.
+- **Images**: JPEG files are embedded as they are, without re-encoding. PNG, GIF and WebP are converted with a canvas, which needs a browser. An image used several times is stored only once.
+- **Shapes**: lines and rectangles (fill and/or stroke).
+- **Headers and footers**: default ones with `{pageNumber}` and `{totalPages}` placeholders, or custom callbacks.
+- **Repeatable output**: `toBytes()`, `getOutput()` and `save()` can be called as often as you like and never change the document.
+- **ESM and CommonJS** builds, with TypeScript types.
 
 ## Installation
 
@@ -21,56 +25,44 @@ npm install @jmt-code/pdf-creator
 
 ## Usage
 
-### Basic Example
+Coordinates are in points (A4 = 595.28 × 841.89) with the origin at the **top-left** corner. For text, `y` is the **baseline**.
 
 ```typescript
 import { PdfCreator } from '@jmt-code/pdf-creator';
 
-const pdf = new PdfCreator();
-
-// Add Text
-pdf.addText('Hello World', 20, 20, { size: 24, color: '#FF0000' });
-
-// Add Image
-pdf.addImage(base64ImageData, 20, 50, { width: 100, height: 100 });
-
-// Add New Page
-pdf.addPage();
-pdf.addText('Page 2', 20, 20);
-
-// Save
-pdf.save('document.pdf');
-```
-
-### Configuration (Headers & Footers)
-
-#### Default Header/Footer
-
-```typescript
 const pdf = new PdfCreator({
-  defaultHeader: {
-    text: 'My Company Confidential',
-    align: 'center',
-    color: '#888888'
-  },
-  defaultFooter: {
-    text: 'Report 2023',
-    showPageNumbers: true,
-    align: 'right'
-  }
+  headerHeight: 40,
+  footerHeight: 40,
+  defaultHeader: { text: 'Informe anual', align: 'center', color: '#888888' },
+  defaultFooter: { text: 'Página {pageNumber} de {totalPages}', align: 'right' },
 });
+
+pdf.addText('Hola, España — 25 €', 40, 100, { size: 24, style: 'bold' });
+pdf.addText('Visit the project', 40, 130, { color: '#0078d4', underline: true, link: 'https://github.com/Jmt-code/pdfEditor' });
+pdf.addRect(40, 150, 200, 2, { fill: '#cccccc' });
+
+// addImage is async: await it before saving
+await pdf.addImage(jpegDataUrl, 40, 170, { width: 200, height: 120 });
+
+pdf.addPage();
+pdf.addText('Page 2', 40, 100);
+
+pdf.save('document.pdf');       // download (browser)
+const blob = pdf.getOutput();   // Blob
+const bytes = pdf.toBytes();    // Uint8Array (also works in Node)
 ```
 
-#### Custom Header/Footer
+### Custom header and footer
+
+The callbacks run on every page while the PDF is built. They must draw synchronously (`addImage` can't be used inside them).
 
 ```typescript
 const pdf = new PdfCreator({
-  onHeader: (doc, pageNum) => {
-    doc.addText(`Custom Header - Page ${pageNum}`, 20, 20);
+  headerHeight: 40,
+  onHeader: (doc, pageNumber, totalPages) => {
+    doc.addText(`Custom header — ${pageNumber}/${totalPages}`, 40, 25, { size: 9 });
+    doc.addLine(40, 32, 555, 32, { color: '#dddddd' });
   },
-  onFooter: (doc, pageNum) => {
-    doc.addText(`Page ${pageNum}`, 500, 800);
-  }
 });
 ```
 
@@ -78,40 +70,46 @@ const pdf = new PdfCreator({
 
 ### `new PdfCreator(config?: PdfConfig)`
 
-Creates a new PDF document.
+| Option | Description |
+|---|---|
+| `headerHeight`, `footerHeight` | Space reserved at the top/bottom of each page, in points (max 200). |
+| `defaultHeader` | `{ text, align, color }` |
+| `defaultFooter` | `{ text, showPageNumbers, align, color }`. `text` supports `{pageNumber}` and `{totalPages}`. Without placeholders, `showPageNumbers` (default `true`) appends `Page N`. |
+| `onHeader`, `onFooter` | `(doc, pageNumber, totalPages) => void`. Replace the default header/footer. |
+| `autoPageBreak` | Start a new page automatically when text or an image goes past the bottom margin. Default `true`. |
 
-**PdfConfig Interface:**
-- `defaultHeader`: Configuration for default header
-- `defaultFooter`: Configuration for default footer
-- `onHeader`: Callback function to render custom header
-- `onFooter`: Callback function to render custom footer
+### Drawing
 
-### `addText(text: string, x: number, y: number, options?: TextOptions)`
+| Method | Description |
+|---|---|
+| `addText(text, x, y, options?)` | Returns `{ x, y, pageBreak }`, where `x` is the end of the text. Options: `size`, `font` (`'helvetica' \| 'times' \| 'courier'`), `style` (`'normal' \| 'bold' \| 'italic' \| 'bolditalic'`), `color`, `align` (`'left' \| 'center' \| 'right'`, aligned between the `marginX` margins), `marginX`, `underline`, `strikethrough`, `horizontalScale` (%), `link`. |
+| `addImage(src, x, y, { width, height })` | Async. `src`: a data URL, or an `http(s)`/`blob` URL. Returns the `y` actually used. |
+| `addLine(x1, y1, x2, y2, { color, width })` | Straight line. |
+| `addRect(x, y, width, height, { fill, stroke, lineWidth })` | Rectangle, positioned by its top-left corner. |
+| `addLink(x, y, width, height, url)` | Clickable area. |
+| `getTextWidth(text, options?)` | Width of the text in points. |
 
-Adds text to the current page.
+### Pages
 
-**TextOptions Interface:**
-- `size`: Font size (default: 12)
-- `font`: Font family ('helvetica', 'times', 'courier')
-- `style`: 'normal', 'bold', 'italic', 'bolditalic'
-- `color`: Hex color code (e.g., '#FF0000')
-- `align`: 'left', 'center', 'right'
+| Method | Description |
+|---|---|
+| `addPage()` | Adds a page and makes it the current page. |
+| `setPage(index)` | Makes page `index` (0-based) the current page. Throws `RangeError` if the index is out of range. |
+| `getPageCount()`, `getCurrentPageIndex()` | Page count and current page index. |
+| `getPageSize()`, `getContentArea()` | Page size, and the top/bottom of the printable area (header and footer excluded). |
 
-### `addImage(imageData: string, x: number, y: number, options: ImageOptions)`
+### Output
 
-Adds an image to the current page. `imageData` should be a base64 string.
+| Method | Description |
+|---|---|
+| `toBytes(): Uint8Array` | The serialized PDF. |
+| `getOutput(): Blob` | The PDF as a `Blob` (`application/pdf`). |
+| `save(filename)` | Downloads the PDF (adds `.pdf` if missing). |
 
-### `addPage()`
+### Helpers
 
-Adds a new page to the document.
-
-### `save(filename: string)`
-
-Generates and downloads the PDF file.
-
-### `getOutput(): Blob`
-
-Returns the PDF as a Blob object.
+- `encodeWinAnsi(text)`: converts a string to the WinAnsi bytes used by the PDF.
+- `readJpegInfo(bytes)`: returns the width, height and number of color components of a JPEG.
 
 ## Links
 
@@ -120,12 +118,4 @@ Returns the PDF as a Blob object.
 
 ## License
 
-MIT
-
----
-
-Created by [Jmt-code](https://github.com/Jmt-code)
-
-## License
-
-MIT
+MIT. Created by [Jmt-code](https://github.com/Jmt-code)
