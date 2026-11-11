@@ -61,3 +61,26 @@ describe('paginate: manual page breaks', () => {
     expect(paginate({ atoms: [line(0)], forcedBreaks: [0] }, 1000)).toEqual([0]);
   });
 });
+
+describe('paginate: borders and backgrounds without text', () => {
+  const fill = (y: number, height = 1) => ({ x: 0, y, width: 100, height, color: '#000000' });
+  const text = (y: number): TextRun => ({
+    kind: 'text', text: 'x', x: 0, y, width: 10, height: 20, baseline: y + 15,
+    font: 'helvetica', style: 'normal', sizePx: 16, color: '#000000',
+  });
+  // Tabla vacía: cada fila (30 px, desde `top`) tiene borde superior y laterales; la última, borde inferior
+  const emptyTable = (top: number, rows: number) => [
+    ...Array.from({ length: rows }, (_, i) => [fill(top + i * 30), fill(top + i * 30, 30)]).flat(),
+    fill(top + rows * 30),
+  ];
+
+  it('an empty table taller than a page gets its own pages, breaking between rows', () => {
+    expect(paginate({ atoms: [], fills: emptyTable(0, 10) }, 100)).toEqual([0, 90, 180, 270]);
+  });
+  it('content after a tall empty table is not skipped', () => {
+    expect(paginate({ atoms: [text(0), text(320)], fills: emptyTable(25, 10) }, 100)).toEqual([0, 85, 175, 265]);
+  });
+  it('a border that only sticks out a few px does not open an almost empty page', () => {
+    expect(paginate({ atoms: [text(75)], fills: [fill(104)] }, 100)).toEqual([0]);
+  });
+});

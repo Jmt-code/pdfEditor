@@ -188,6 +188,18 @@ describe('createEditor (SDK)', () => {
     spy.mockRestore();
   });
 
+  it('execute sanitizes insertHTML and validates URLs whatever the command case', async () => {
+    const { editor } = await mount();
+    const spy = vi.spyOn(document, 'execCommand').mockReturnValue(true);
+    editor.execute('insertHTML', '<img src="x.png" onerror="alert(1)"><script>alert(1)</script>');
+    editor.execute('CREATELINK', 'javascript:alert(1)');
+    editor.execute('insertimage', 'javascript:alert(1)');
+    editor.execute('inserthtml', '<script>alert(1)</script>');
+    expect(spy).toHaveBeenCalledOnce();
+    expect(spy).toHaveBeenCalledWith('insertHTML', false, '<img src="x.png">');
+    spy.mockRestore();
+  });
+
   it('async failures are also emitted as error events', async () => {
     const { editor } = await mount();
     const onError = vi.fn();

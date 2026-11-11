@@ -490,4 +490,19 @@ describe('PdfCreator', () => {
     const pdf = new PdfCreator();
     expect(() => pdf.setPage(3)).toThrow(RangeError);
   });
+
+  it('restores the current page and cursor when a header callback throws', () => {
+    let fail = true;
+    const pdf = new PdfCreator({
+      headerHeight: 30,
+      onHeader: () => { if (fail) throw new Error('boom'); },
+    });
+    pdf.addPage();
+    pdf.addParagraph('Second page');
+    const before = [pdf.getCurrentPageIndex(), pdf.cursorY];
+    expect(() => pdf.toBytes()).toThrow('boom');
+    expect([pdf.getCurrentPageIndex(), pdf.cursorY]).toEqual(before);
+    fail = false;
+    expect(pdf.toBytes().length).toBeGreaterThan(0);
+  });
 });

@@ -206,7 +206,7 @@ The PDF uses the same layout as the editor. The browser lays out the content wit
 - Links and images go through `isSafeUrl`. Links accept `http(s)`, `mailto:`, `tel:` and relative URLs. Images accept `http(s)`, relative URLs and `data:image/(png|jpeg|gif|webp)`. `javascript:`, `vbscript:` and other `data:` URLs are blocked.
 - Image files inserted from disk must be PNG, JPEG, GIF or WebP, up to 5 MB.
 
-Both functions are exported in case you need them in your app.
+`sanitizeHtml`, `sanitizePastedHtml` and `isSafeUrl` are exported in case you need them in your app.
 
 ## Theming
 
@@ -228,57 +228,173 @@ Customize via CSS variables:
 }
 ```
 
-## Advanced Usage
+## Recipes
 
-### Using Individual Components
+### Save and restore a document (autosave)
+
+`getDocument()` returns plain JSON (`{ version: 1, html, header, footer, fileName }`), so you can store it anywhere.
+
+```ts
+import { createEditor, type EditorDocument } from '@jmt-code/pdf-editor/sdk';
+import '@jmt-code/pdf-editor/style.css';
+
+const saved = localStorage.getItem('doc');
+const editor = createEditor(document.getElementById('editor')!, {
+  locale: 'es',
+  content: saved ? (JSON.parse(saved) as EditorDocument) : '<h1>Nuevo documento</h1>',
+});
+
+let timer: number | undefined;
+editor.on('change', ({ document }) => {
+  clearTimeout(timer);
+  timer = window.setTimeout(() => localStorage.setItem('doc', JSON.stringify(document)), 500);
+});
+```
+
+### Send the PDF to your server instead of downloading it
+
+```ts
+const editor = createEditor(el, {
+  // Called by the toolbar's export button (and Ctrl+S)
+  onExportRequest: async (pdf, fileName) => {
+    const body = new FormData();
+    body.append('file', pdf, `${fileName}.pdf`);
+    await fetch('/api/documents', { method: 'POST', body });
+  },
+});
+
+// Or from your own code
+const pdf = await editor.exportPdf(); // Blob
+```
+
+### Custom toolbar buttons and a trimmed toolbar
+
+```ts
+const editor = createEditor(el, {
+  hiddenTools: ['fontFamily', 'colors', 'headerFooter'],
+  toolbarItems: [
+    { id: 'signature', label: '✍', title: 'Insert signature', run: (ed) => ed.setHTML(ed.getHTML() + '<p><em>Firmado: ACME S.L.</em></p>') },
+    { id: 'save', label: 'Save', run: (ed) => api.save(ed.getDocument()) },
+  ],
+});
+```
+
+### Read-only viewer, theme and language at runtime
+
+```ts
+const viewer = createEditor(el, { content: doc, readOnly: true, toolbar: false });
+
+editor.setReadOnly(true);
+editor.configure({ locale: 'en', theme: { primary: '#7c3aed', toolbarBackground: '#faf5ff' } });
+editor.configure({ theme: undefined }); // back to the default theme
+```
+
+### Listen to the editor
+
+```ts
+const off = editor.on('stats', ({ words, pages }) => (status.textContent = `${words} words · ${pages} pages`));
+editor.on('selectionchange', ({ formats }) => boldButton.classList.toggle('active', formats.includes('bold')));
+editor.on('error', (err) => console.error('Export failed', err));
+off(); // unsubscribe
+```
+
+### Vue 3
+
+```vue
+<script setup lang="ts">
+import { onMounted, onBeforeUnmount, ref } from 'vue';
+import { createEditor, type EditorInstance } from '@jmt-code/pdf-editor/sdk';
+import '@jmt-code/pdf-editor/style.css';
+
+const host = ref<HTMLElement>();
+const emit = defineEmits<{ change: [html: string] }>();
+let editor: EditorInstance | undefined;
+
+onMounted(() => {
+  editor = createEditor(host.value!, { locale: 'es' });
+  editor.on('change', ({ html }) => emit('change', html));
+});
+onBeforeUnmount(() => editor?.destroy());
+</script>
+
+<template><div ref="host" style="height: 80vh" /></template>
+```
+
+### Angular
+
+```ts
+import { AfterViewInit, Component, ElementRef, OnDestroy, ViewChild } from '@angular/core';
+import { createEditor, type EditorInstance } from '@jmt-code/pdf-editor/sdk';
+// Add "node_modules/@jmt-code/pdf-editor/dist/style.css" to "styles" in angular.json
+
+@Component({ selector: 'app-editor', standalone: true, template: '<div #host style="height: 80vh"></div>' })
+export class EditorComponent implements AfterViewInit, OnDestroy {
+  @ViewChild('host') host!: ElementRef<HTMLElement>;
+  private editor?: EditorInstance;
+
+  ngAfterViewInit() {
+    this.editor = createEditor(this.host.nativeElement, { locale: 'es' });
+  }
+  ngOnDestroy() {
+    this.editor?.destroy();
+  }
+}
+```
+
+### Svelte
+
+```svelte
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import { createEditor } from '@jmt-code/pdf-editor/sdk';
+  import '@jmt-code/pdf-editor/style.css';
+
+  let host: HTMLElement;
+  onMount(() => {
+    const editor = createEditor(host, { locale: 'es' });
+    return () => editor.destroy();
+  });
+</script>
+
+<div bind:this={host} style="height: 80vh"></div>
+```
+
+### React: control the editor through a ref
 
 ```tsx
-import {
-  Toolbar,
-  HeaderFooterPanel,
-  useEditorCommands,
-  useMarkdownShortcuts,
-} from '@jmt-code/pdf-editor';
+import { useRef } from 'react';
+import { PdfEditor, type PdfEditorRef } from '@jmt-code/pdf-editor';
+import '@jmt-code/pdf-editor/style.css';
 
-// Build your own custom editor
-function CustomEditor() {
-  const editorRef = useRef<HTMLDivElement>(null);
-  const [formats, setFormats] = useState(new Set());
-
-  const { execCommand, formatBlock } = useEditorCommands(
-    editorRef,
-    setFormats,
-    () => {}
-  );
-
+export function ReportEditor({ initial, onSave }: { initial: string; onSave: (html: string) => void }) {
+  const ref = useRef<PdfEditorRef>(null);
   return (
-    <div>
-      <Toolbar
-        activeFormats={formats}
-        onCommand={execCommand}
-        // ...other props
-      />
-      <div
-        ref={editorRef}
-        contentEditable
-        // ...
-      />
-    </div>
+    <>
+      <button onClick={() => onSave(ref.current!.getContent())}>Save</button>
+      <button onClick={() => ref.current?.downloadPdf('report')}>PDF</button>
+      <div style={{ height: '80vh' }}>
+        <PdfEditor ref={ref} config={{ initialContent: initial, locale: 'es', hiddenTools: ['fontFamily'] }} />
+      </div>
+    </>
   );
 }
 ```
 
-### Generating PDF Without UI
+### Generate a PDF from HTML without showing the editor
 
-```tsx
+Runs in the browser (the layout is measured with the DOM). The HTML is sanitized first.
+
+```ts
 import { generatePdfFromContent, downloadPdf } from '@jmt-code/pdf-editor';
 
-async function generatePdf() {
-  const html = '<h1>My Document</h1><p>Content...</p>';
-  const blob = await generatePdfFromContent(html, 'Header', 'Footer', 'doc');
-  downloadPdf(blob, 'my-document.pdf');
-}
+const html = '<h1>Factura 2026-001</h1><p>Total: <strong>120 €</strong></p>';
+const blob = await generatePdfFromContent(html, 'ACME S.L.', 'Página {pageNumber} de {totalPages}');
+downloadPdf(blob, 'factura.pdf');
 ```
+
+### Building your own UI
+
+`Toolbar`, `HeaderFooterPanel`, `PageIndicator` and the hooks (`useEditorCommands`, `useMarkdownShortcuts`, `usePaste`, `usePageCalculation`) are exported for advanced cases, but their props may change between minor versions. For most needs, prefer `hideToolbar` / `toolbar: false` plus your own buttons calling the ref or SDK methods (`execute('bold')`, `insertTable()`...).
 
 ## Requirements
 

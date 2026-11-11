@@ -929,25 +929,29 @@ export class PdfCreator {
     const overlays: { content: string[]; links: LinkAnnotation[]; images: Set<string>; fonts: Set<string> }[] = [];
     const savedPage = this.currentPageIndex;
     const savedCursor = this.cursor;
-    for (let i = 0; i < total; i++) {
-      this.currentPageIndex = i;
-      // Callbacks get a throw-away cursor at the top of the page; the body cursor is restored
-      this.cursor = 0;
-      const fontsBefore = new Set(this.pages[i].fonts);
-      this.overlay = { content: [], links: [], images: new Set() };
-      try {
-        this.drawHeaderFooter(i + 1, total);
-      } finally {
-        const ov = this.overlay!;
-        this.overlay = null;
-        // Fonts registered by the overlay must not leak into the page permanently.
-        const fonts = new Set(this.pages[i].fonts);
-        this.pages[i].fonts = fontsBefore;
-        overlays.push({ ...ov, fonts });
+    try {
+      for (let i = 0; i < total; i++) {
+        this.currentPageIndex = i;
+        // Callbacks get a throw-away cursor at the top of the page; the body cursor is restored
+        this.cursor = 0;
+        const fontsBefore = new Set(this.pages[i].fonts);
+        this.overlay = { content: [], links: [], images: new Set() };
+        try {
+          this.drawHeaderFooter(i + 1, total);
+        } finally {
+          const ov = this.overlay!;
+          this.overlay = null;
+          // Fonts registered by the overlay must not leak into the page permanently.
+          const fonts = new Set(this.pages[i].fonts);
+          this.pages[i].fonts = fontsBefore;
+          overlays.push({ ...ov, fonts });
+        }
       }
+    } finally {
+      // Restore even if a header/footer callback throws
+      this.currentPageIndex = savedPage;
+      this.cursor = savedCursor;
     }
-    this.currentPageIndex = savedPage;
-    this.cursor = savedCursor;
 
     // 2. Object numbering (local to this build).
     let nextId = 1;

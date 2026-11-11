@@ -436,6 +436,9 @@ export function collectLayout(root: HTMLElement, options: CollectOptions = {}): 
   return layout;
 }
 
+/** Lo que un borde o fondo sin texto puede sobresalir de la página sin forzar un salto (px) */
+const SOFT_OVERFLOW_PX = 8;
+
 /**
  * Calcula dónde empieza cada página (en px del contenido). Nunca corta una línea: las cajas que
  * se solapan verticalmente se agrupan y la página salta al inicio del grupo que no cabe.
@@ -447,16 +450,23 @@ export function paginate(
   const fills = layout.fills ?? [];
   const forced = [...(layout.forcedBreaks ?? [])].sort((a, b) => a - b);
   let nextForced = 0;
-  const boxes = layout.atoms
+  const boxes = [
     // Las imágenes más altas que una página se dibujan reducidas a una página
-    .map(a => ({ top: a.y, bottom: a.y + (a.kind === 'image' ? Math.min(a.height, pageHeightPx) : a.height) }))
-    .sort((a, b) => a.top - b.top);
+    ...layout.atoms.map(a => ({ top: a.y, bottom: a.y + (a.kind === 'image' ? Math.min(a.height, pageHeightPx) : a.height), soft: false })),
+    // Bordes y fondos sin texto (tabla vacía, <hr>...) también ocupan sitio: sus bordes
+    // superior e inferior cuentan como puntos de contenido, sin altura
+    ...fills.flatMap(f => [
+      { top: f.y, bottom: f.y, soft: true },
+      { top: f.y + f.height, bottom: f.y + f.height, soft: true },
+    ]),
+  ].sort((a, b) => a.top - b.top);
 
-  const groups: { top: number; bottom: number }[] = [];
+  const groups: { top: number; bottom: number; soft: boolean }[] = [];
   for (const b of boxes) {
     const last = groups[groups.length - 1];
     if (last && b.top < last.bottom - 1) {
       last.bottom = Math.max(last.bottom, b.bottom);
+      last.soft &&= b.soft;
     } else {
       groups.push({ ...b });
     }
@@ -465,6 +475,9 @@ export function paginate(
   const breaks = [0];
   let pageTop = 0;
   let prevBottom = 0;
+  // Final de la última línea de texto/imagen (los bordes no cuentan: un bloque con borde
+  // superior debe poder pasar entero a la página siguiente)
+  let prevContentBottom = 0;
   for (const g of groups) {
     // Saltos manuales anteriores a este grupo: el grupo abre página (varios seguidos cuentan
     // como uno; uno al principio de una página no crea una página vacía)
@@ -478,13 +491,18 @@ export function paginate(
       breaks.push(pageTop);
     }
     while (g.bottom - pageTop > pageHeightPx + 0.5) {
+      // Un borde que solo sobresale un poco (p. ej. el borde inferior de la última fila de una
+      // tabla, por el padding) se dibuja en el margen en lugar de abrir una página casi vacía
+      if (g.soft && g.bottom - pageTop <= pageHeightPx + SOFT_OVERFLOW_PX) break;
       if (g.top > pageTop + 0.5) {
         // La siguiente página empieza en el grupo... o antes, si el grupo está dentro de un
         // bloque con fondo/borde que empieza después de la última línea de esta página
         // (p. ej. el padding superior de un <pre>): así el bloque no queda partido.
         let start = g.top;
         for (const f of fills) {
-          if (f.y < start && f.y >= prevBottom - 0.5 && f.y > pageTop + 0.5 && f.y + f.height > g.top) {
+          // Un borde suelto que no cabe arrastra la caja que cierra (p. ej. la fila de una tabla vacía)
+          const spans = g.soft ? f.y + f.height >= g.top - 0.5 : f.y + f.height > g.top;
+          if (f.y < start && f.y >= prevContentBottom - 0.5 && f.y > pageTop + 0.5 && spans) {
             start = f.y;
           }
         }
@@ -496,6 +514,7 @@ export function paginate(
       breaks.push(pageTop);
     }
     prevBottom = g.bottom;
+    if (!g.soft) prevContentBottom = g.bottom;
   }
   // Un salto manual detrás de todo el contenido también abre página (como en Word: el cursor
   // queda en la página nueva, vacía)

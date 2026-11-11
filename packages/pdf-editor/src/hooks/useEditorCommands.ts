@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, RefObject } from 'react';
-import { isSafeUrl } from '../utils/sanitize';
+import { isSafeUrl, sanitizeHtml } from '../utils/sanitize';
 import { ALLOWED_IMAGE_TYPES, readImageFile } from '../utils/images';
 import type { TextFormat } from '../types';
 
@@ -64,8 +64,15 @@ export function useEditorCommands(
   const execCommand = useCallback((command: string, value?: string) => {
     const editor = editorRef.current;
     if (disabledRef.current || !editor) return;
-    if (command === 'createLink' && (!value || !isSafeUrl(value, 'link'))) return;
-    if (command === 'insertImage' && (!value || !isSafeUrl(value, 'image'))) return;
+    // execCommand no distingue mayúsculas: se normaliza antes de validar
+    const name = command.toLowerCase();
+    if (name === 'createlink' && (!value || !isSafeUrl(value, 'link'))) return;
+    if (name === 'insertimage' && (!value || !isSafeUrl(value, 'image'))) return;
+    // El HTML insertado por la API pasa por el mismo saneado que setHTML
+    if (name === 'inserthtml') {
+      value = sanitizeHtml(value ?? '');
+      if (!value) return;
+    }
     const selection = window.getSelection();
     if (!selection) return;
     const current = selection.rangeCount ? selection.getRangeAt(0) : null;
