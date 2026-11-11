@@ -6,9 +6,9 @@ npm workspaces monorepo with a browser-only PDF generator and a Word-like React 
 
 | Package | Description |
 |---|---|
-| `@jmt-code/pdf-creator` | Zero-dependency PDF 1.7 generator. Standard 14 fonts with WinAnsi encoding and exact AFM metrics, JPEG images, lines/rects, link annotations. Works in Node for everything except non-JPEG images. |
-| `@jmt-code/pdf-editor` | React (18 or 19) contentEditable editor with A4 pages, header/footer, Markdown shortcuts, PDF export via pdf-creator. Depends on DOMPurify. |
-| `example-app` | Vite + React demo app (deployed to GitHub Pages). |
+| `@jmt-code/pdf-creator` | Zero-dependency PDF 1.7 generator. Page sizes/orientation/margins, flowing API (`addParagraph` with wrapping/justify, per-page cursor), standard 14 fonts with WinAnsi + exact AFM metrics, images (`loadImage`/`drawImage`/`addImage`), lines/rects, links. Works in Node except non-JPEG images. |
+| `@jmt-code/pdf-editor` | Word-like contentEditable editor (A4 pages, header/footer, tables, manual page breaks, paste cleanup, i18n, themes). Entries: React component (`.`), framework-agnostic SDK (`./sdk`, `createEditor`), and an IIFE `<script>` bundle (`dist/pdf-editor.sdk.js`, global `PdfEditorSDK`). Depends on DOMPurify. |
+| `example-app` | Vite demos (GitHub Pages): React (`index.html`) and SDK in vanilla JS (`sdk.html`). |
 
 ## Commands (repo root)
 
@@ -30,7 +30,9 @@ Build order matters: `pdf-creator` must be built before `pdf-editor` and `exampl
   - `htmlLayout.ts`: lets the browser lay out the HTML with the editor CSS and measures every word (`Range.getClientRects`), image, background, border, list marker, underline and link. `paginate()` splits pages between lines (never through one).
   - `pdfGenerator.ts`: mounts the sanitized HTML off-screen, measures, paginates and draws on PdfCreator (words are horizontally scaled with `Tz` to match the measured width).
   - `usePageCalculation` uses the same `collectLayout` + `paginate`, so the editor's page count matches the PDF.
-- **Security**: all HTML entering the DOM goes through `sanitizeHtml` (DOMPurify); URLs go through `isSafeUrl` (blocks `javascript:`, non-image `data:`...). Markdown shortcuts build DOM nodes, never `insertHTML` with user text.
+- **Security**: all HTML entering the DOM goes through `sanitizeHtml` (DOMPurify, CSS property whitelist); paste and external drops through `sanitizePastedHtml`; URLs through `isSafeUrl`; SDK theme values through `isSafeCssBackground`. Markdown shortcuts build DOM nodes, never `insertHTML` with user text.
+- **SDK** (`src/sdk.tsx`): mounts `PdfEditor` with `createRoot`; options changed via `configure`/`setReadOnly` without remounting; `setDocument` is atomic in `PdfEditorRef` (one `change`). Manual page breaks are empty `<div data-page-break="true">` markers honoured by `paginate()`.
+- **Verification**: jsdom cannot test geometry/execCommand behaviour; check layout, paste and export in real Chrome (example-app dev server).
 - `document.execCommand` is deprecated but still used for formatting commands.
 
 ## Conventions
