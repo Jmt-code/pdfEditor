@@ -1,4 +1,4 @@
-import{y as i}from"./style-Ch0oN44I.js";const l=document.getElementById("log"),e=i(document.getElementById("editor"),{locale:"es",content:{version:1,html:`<h1>Informe trimestral</h1>
+import{y as i}from"./style-CVhwMsXK.js";const l=document.getElementById("log"),e=i(document.getElementById("editor"),{locale:"es",content:{version:1,html:`<h1>Informe trimestral</h1>
 <p>Este editor se ha montado con <strong>createEditor()</strong> desde JavaScript puro.</p>
 <table><thead><tr><th>Región</th><th>Ventas</th><th>Variación</th></tr></thead>
 <tbody><tr><td>Norte</td><td>12.500 €</td><td>+4 %</td></tr><tr><td>Sur</td><td>9.800 €</td><td>−2 %</td></tr></tbody></table>

@@ -1,4 +1,4 @@
-import{r as s,j as t,f as l,k as c,c as p,R as u}from"./style-Ch0oN44I.js";const d={initialContent:`
+import{r as s,j as t,f as l,N as c,c as p,R as u}from"./style-CVhwMsXK.js";const d={initialContent:`
     <h1>Document Title - PDF Editor Demo</h1>
     <p>This is a powerful document editor with PDF export capabilities. It displays your content as separate pages, just like Microsoft Word, with visual page breaks showing exactly where each page ends and the next one begins.</p>
 
